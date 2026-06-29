@@ -442,14 +442,14 @@ const MODES = {
     datasets: [
       { key:'spend',       label:'花費', color:'#c8a96e', axis:'y',  type:'bar' },
       { key:'impressions', label:'曝光', color:'#1877f2', axis:'y1', type:'bar' },
-      { key:'cpm',         label:'CPM',  color:'#e67e22', axis:'y',  type:'line' },
+      { key:'cpm',         label:'CPM',  color:'#e67e22', axis:'y2', type:'line' },
     ]
   },
   traffic: {
     datasets: [
       { key:'spend',                      label:'花費',     color:'#c8a96e', axis:'y',  type:'bar' },
       { key:'inline_link_clicks',         label:'連結點擊', color:'#9b59b6', axis:'y1', type:'bar' },
-      { key:'cost_per_inline_link_click', label:'CPC(link)',color:'#e74c3c', axis:'y',  type:'line' },
+      { key:'cost_per_inline_link_click', label:'CPC(link)',color:'#e74c3c', axis:'y2', type:'line' },
     ]
   },
 };
@@ -629,8 +629,10 @@ function drawChart() {
   });
 
   const hasY1 = modeDefs.some(d => d.axis === 'y1');
+  const hasY2 = modeDefs.some(d => d.axis === 'y2');
   const yKey  = modeDefs.find(d => d.axis === 'y')?.key  || 'spend';
   const y1Key = modeDefs.find(d => d.axis === 'y1')?.key || '';
+  const y2Key = modeDefs.find(d => d.axis === 'y2')?.key || '';
 
   dailyChart = new Chart(ctx, {
     type: 'bar',
@@ -661,6 +663,17 @@ function drawChart() {
             position: 'right',
             grid: { drawOnChartArea: false },
             ticks: { callback: axisFormatter(y1Key) }
+          }
+        } : {}),
+        ...(hasY2 ? {
+          y2: {
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: {
+              callback: axisFormatter(y2Key),
+              color: modeDefs.find(d=>d.axis==='y2')?.color || '#999',
+            },
+            border: { dash: [4,4] },
           }
         } : {})
       }
