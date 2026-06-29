@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meta Branding Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<style>
+/* ── Reset & Base ─────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f2f3f5;
+  color: #1a1a1a;
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── Brand colour tokens ─────────────────────────────── */
+:root {
+  --sam-primary: #1a1a1a;
+  --sam-accent:  #c8a96e;
+  --sam-light:   #f5f0e8;
+  --sam-border:  #2e2e2e;
+  --at-primary:  #3aab3a;
+  --at-accent:   #f5d800;
+  --at-light:    #fffde7;
+  --at-border:   #2d8c2d;
+
+  /* active brand tokens (default = Samsonite) */
+  --brand-primary: var(--sam-primary);
+  --brand-accent:  var(--sam-accent);
+  --brand-light:   var(--sam-light);
+  --brand-border:  var(--sam-border);
+  --brand-chart:   #c8a96e;
+}
+body.at {
+  --brand-primary: var(--at-primary);
+  --brand-accent:  var(--at-accent);
+  --brand-light:   var(--at-light);
+  --brand-border:  var(--at-border);
+  --brand-chart:   #3aab3a;
+}
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar {
+  width: 200px;
+  min-height: 100vh;
+  background: #fff;
+  border-right: 1px solid #e4e4e4;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  z-index: 200;
+  box-shadow: 2px 0 12px rgba(0,0,0,0.06);
+}
+
+.sidebar-logo {
+  padding: 22px 20px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #888;
+  border-bottom: 1px solid #eee;
+}
+
+.brand-list { padding: 12px 10px; display: flex; flex-direction: column; gap: 6px; }
+
+.brand-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+  font-size: 14px; font-weight: 600;
+  color: #555;
+  background: transparent;
+  position: relative;
+  overflow: hidden;
+}
+.brand-btn:hover { background: #f5f5f5; }
+
+/* Samsonite active */
+.brand-btn[data-brand="samsonite"].active {
+  background: var(--sam-primary);
+  color: #fff;
+  border-color: var(--sam-primary);
+}
+.brand-btn[data-brand="samsonite"].active .brand-dot { background: var(--sam-accent); }
+
+/* American Tourister active */
+.brand-btn[data-brand="american_tourister"].active {
+  background: linear-gradient(135deg, var(--at-primary) 0%, #1d7a1d 100%);
+  color: #fff;
+  border-color: var(--at-primary);
+}
+.brand-btn[data-brand="american_tourister"].active .brand-dot { background: var(--at-accent); }
+
+.brand-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #ccc; flex-shrink: 0; transition: background 0.2s;
+}
+.brand-btn[data-brand="samsonite"] .brand-dot { background: #1a1a1a; }
+.brand-btn[data-brand="american_tourister"] .brand-dot { background: var(--at-primary); }
+.brand-btn.active .brand-name { color: inherit; }
+
+.brand-name { line-height: 1.2; }
+.brand-name small { display: block; font-size: 10px; font-weight: 400; opacity: 0.7; margin-top: 1px; }
+
+/* Sub nav (objective / platform) */
+.sidebar-section {
+  padding: 16px 10px 8px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1px; color: #aaa;
+}
+.sidebar-nav { padding: 0 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.nav-item {
+  padding: 9px 14px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; color: #555;
+  cursor: pointer; display: flex; align-items: center; gap: 8px;
+  transition: all 0.15s;
+}
+.nav-item:hover { background: #f5f5f5; }
+.nav-item.active {
+  background: var(--brand-light);
+  color: var(--brand-primary);
+  font-weight: 700;
+}
+.nav-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--brand-primary); flex-shrink: 0;
+}
+
+.sidebar-footer {
+  margin-top: auto; padding: 16px 20px;
+  font-size: 11px; color: #bbb; border-top: 1px solid #eee;
+}
+
+/* ── Main area ───────────────────────────────────────── */
+.main { margin-left: 200px; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+/* ── Topbar ──────────────────────────────────────────── */
+.topbar {
+  background: #fff;
+  border-bottom: 1px solid #e4e4e4;
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.topbar-title {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.topbar-brand {
+  font-size: 18px; font-weight: 800; letter-spacing: -0.3px;
+  color: var(--brand-primary);
+  transition: color 0.3s;
+}
+.topbar-sub {
+  font-size: 12px; color: #999; font-weight: 500;
+  display: flex; align-items: center; gap: 6px;
+}
+.platform-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #1877f2; color: #fff;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  padding: 2px 7px; border-radius: 4px;
+}
+.objective-badge {
+  display: inline-flex; align-items: center;
+  background: var(--brand-light);
+  color: var(--brand-primary);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  padding: 2px 7px; border-radius: 4px; border: 1px solid var(--brand-accent);
+  transition: all 0.3s;
+}
+
+/* ── Date controls ───────────────────────────────────── */
+.date-controls { display: flex; align-items: center; gap: 7px; }
+.date-preset {
+  padding: 6px 12px; border-radius: 6px; border: 1px solid #e0e0e0;
+  font-size: 12px; cursor: pointer; background: #fff; color: #555;
+  font-weight: 500; transition: all 0.15s;
+}
+.date-preset:hover { border-color: #bbb; }
+.date-preset.active {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: #fff; font-weight: 600;
+}
+.date-input {
+  padding: 6px 10px; border-radius: 6px; border: 1px solid #e0e0e0;
+  font-size: 12px; color: #444; outline: none;
+}
+.date-sep { color: #ccc; font-size: 13px; }
+.apply-btn {
+  padding: 6px 16px;
+  background: var(--brand-primary);
+  color: #fff; border: none; border-radius: 6px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.apply-btn:hover { opacity: 0.85; }
+
+/* ── Content ─────────────────────────────────────────── */
+.content { padding: 24px 28px; flex: 1; }
+.section-gap { margin-bottom: 28px; }
+
+.section-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1px; color: #aaa; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-label::after {
+  content: ''; flex: 1; height: 1px; background: #eee;
+}
+
+/* ── Summary cards ───────────────────────────────────── */
+.summary-cards {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;
+}
+.card {
+  background: #fff; border-radius: 12px; padding: 16px 18px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  border-top: 3px solid transparent;
+  transition: border-color 0.3s;
+}
+.card:first-child { border-top-color: var(--brand-accent); }
+.card-label {
+  font-size: 10px; color: #aaa; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;
+}
+.card-value { font-size: 21px; font-weight: 800; color: #1a1a1a; line-height: 1; }
+
+/* ── Chart ───────────────────────────────────────────── */
+.chart-section {
+  background: #fff; border-radius: 12px; padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+}
+.chart-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.chart-title { font-size: 14px; font-weight: 700; color: #333; }
+.metric-toggle { display: flex; gap: 5px; flex-wrap: wrap; }
+.metric-btn {
+  padding: 4px 12px; border-radius: 20px; border: 1px solid #e0e0e0;
+  font-size: 12px; cursor: pointer; background: #fff; color: #777;
+  font-weight: 500; transition: all 0.15s;
+}
+.metric-btn:hover { border-color: #bbb; color: #444; }
+.metric-btn.active {
+  background: var(--brand-primary);
+  color: #fff; border-color: var(--brand-primary);
+}
+.chart-wrapper { position: relative; height: 260px; }
+
+/* ── Tables ──────────────────────────────────────────── */
+.table-section {
+  background: #fff; border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07); overflow: hidden;
+}
+.table-inner { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  background: #fafafa; padding: 10px 14px; text-align: right;
+  font-weight: 700; color: #777; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.4px;
+  border-bottom: 1px solid #eee; white-space: nowrap;
+}
+th:first-child { text-align: left; }
+td { padding: 10px 14px; text-align: right; border-bottom: 1px solid #f3f3f3; color: #333; }
+td:first-child { text-align: left; font-weight: 500; color: #1a1a1a; max-width: 320px; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #fafafa; }
+.total-row td {
+  font-weight: 800; background: var(--brand-light);
+  color: var(--brand-primary); border-bottom: none;
+  border-top: 2px solid var(--brand-accent);
+}
+
+/* ── Misc ────────────────────────────────────────────── */
+.loading {
+  display: flex; align-items: center; justify-content: center;
+  height: 180px; color: #aaa; font-size: 14px; gap: 10px;
+}
+.spinner {
+  width: 22px; height: 22px; border: 3px solid #eee;
+  border-top-color: var(--brand-primary);
+  border-radius: 50%; animation: spin 0.75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-msg { color: #e53935; padding: 20px; text-align: center; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ──────────────────────────────────────── -->
+<div class="sidebar">
+  <div class="sidebar-logo">📊 Ad Dashboard</div>
+
+  <div class="brand-list">
+    <div class="brand-btn active" data-brand="samsonite" onclick="switchBrand(this)">
+      <div class="brand-dot"></div>
+      <div class="brand-name">
+        Samsonite
+        <small>Marketing</small>
+      </div>
+    </div>
+    <div class="brand-btn" data-brand="american_tourister" onclick="switchBrand(this)">
+      <div class="brand-dot"></div>
+      <div class="brand-name">
+        American Tourister
+        <small>Marketing</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">目標</div>
+  <div class="sidebar-nav">
+    <div class="nav-item active">
+      <div class="nav-dot"></div>
+      Branding
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    Meta Ads API v21.0
+  </div>
+</div>
+
+<!-- ── Main ─────────────────────────────────────────── -->
+<div class="main">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-title">
+      <div class="topbar-brand" id="topBrandName">Samsonite</div>
+      <div class="topbar-sub">
+        <span class="objective-badge" id="objectiveBadge">BRANDING</span>
+        帳戶總覽
+      </div>
+    </div>
+    <div class="date-controls">
+      <button class="date-preset" onclick="setPreset(this,'last_7')" data-preset="last_7">近7天</button>
+      <button class="date-preset active" onclick="setPreset(this,'last_30')" data-preset="last_30">近30天</button>
+      <button class="date-preset" onclick="setPreset(this,'this_month')" data-preset="this_month">本月</button>
+      <button class="date-preset" onclick="setPreset(this,'last_month')" data-preset="last_month">上月</button>
+      <input type="date" id="dateSince" class="date-input" onchange="clearPreset()">
+      <span class="date-sep">—</span>
+      <input type="date" id="dateUntil" class="date-input" onchange="clearPreset()">
+      <button class="apply-btn" onclick="loadAll()">套用</button>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+
+    <!-- Summary cards -->
+    <div class="section-gap">
+      <div class="section-label"><span class="platform-badge" style="font-size:11px;padding:3px 8px;border-radius:5px">f META</span> 帳戶整體表現</div>
+      <div class="summary-cards" id="summaryCards">
+        <div class="loading" style="grid-column:1/-1"><div class="spinner"></div> 載入中...</div>
+      </div>
+    </div>
+
+    <!-- Daily chart -->
+    <div class="section-gap">
+      <div class="chart-section">
+        <div class="chart-header">
+          <div class="chart-title">每日趨勢</div>
+          <div class="metric-toggle">
+            <button class="metric-btn active" onclick="switchMode(this,'overall')">整體</button>
+            <button class="metric-btn" onclick="switchMode(this,'awareness')">曝光</button>
+            <button class="metric-btn" onclick="switchMode(this,'traffic')">導流</button>
+          </div>
+        </div>
+        <div class="chart-wrapper"><canvas id="dailyChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Daily table -->
+    <div class="section-gap">
+      <div class="section-label">每日明細</div>
+      <div class="table-section">
+        <div class="table-inner" id="dailyTable">
+          <div class="loading"><div class="spinner"></div> 載入中...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Campaign -->
+    <div class="section-gap">
+      <div class="section-label">活動（Campaign）拆分</div>
+      <div class="table-section">
+        <div class="table-inner" id="campaignTable">
+          <div class="loading"><div class="spinner"></div> 載入中...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ad Set -->
+    <div class="section-gap">
+      <div class="section-label">受眾（Ad Set）拆分</div>
+      <div class="table-section">
+        <div class="table-inner" id="adsetTable">
+          <div class="loading"><div class="spinner"></div> 載入中...</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<script>
+const ACCESS_TOKEN = 'EAAOgjBZCa97gBRsau23cuaiGPGILbMg4jfK3CByOLay0lmIl2eHL2k2VkmeqJymNwIQZAcfoIqO9HvONrB4LNQwTrIWo0bqCv9ILZBOTaWXS5ZB5Qa3KZAg8YF1dVfyPufTVQQCoRacXFNjaTI658v4WOOTf7Up3oon1KMwZBOOeX9LVpYsDZAqcw1ic2X6';
+const GRAPH_URL = 'https://graph.facebook.com/v21.0';
+const ACCOUNT_IDS = {
+  samsonite: 'act_1318174565548910',
+  american_tourister: 'act_1530988521034172',
+};
+const FIELDS = 'spend,impressions,cpm,inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click';
+let currentBrand = 'samsonite';
+let dailyChart = null;
+let activeMode = 'overall';
+let dailyData = [];
+
+const MODES = {
+  overall:   {
+    datasets: [
+      { key:'spend', label:'花費', color:'#c8a96e', axis:'y', type:'bar' },
+    ]
+  },
+  awareness: {
+    datasets: [
+      { key:'spend',       label:'花費', color:'#c8a96e', axis:'y',  type:'bar' },
+      { key:'impressions', label:'曝光', color:'#1877f2', axis:'y1', type:'bar' },
+      { key:'cpm',         label:'CPM',  color:'#e67e22', axis:'y',  type:'line' },
+    ]
+  },
+  traffic: {
+    datasets: [
+      { key:'spend',                      label:'花費',     color:'#c8a96e', axis:'y',  type:'bar' },
+      { key:'inline_link_clicks',         label:'連結點擊', color:'#9b59b6', axis:'y1', type:'bar' },
+      { key:'cost_per_inline_link_click', label:'CPC(link)',color:'#e74c3c', axis:'y',  type:'line' },
+    ]
+  },
+};
+
+const BRAND_NAMES = {
+  samsonite: 'Samsonite',
+  american_tourister: 'American Tourister',
+};
+
+// ── Date helpers ────────────────────────────────────────
+function today() { return new Date().toISOString().slice(0,10); }
+function daysAgo(n) { const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+function firstOfMonth() { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; }
+function lastMonth() {
+  const d=new Date(), m=d.getMonth()===0?12:d.getMonth(), y=d.getMonth()===0?d.getFullYear()-1:d.getFullYear();
+  const last=new Date(y,m,0).getDate();
+  return { since:`${y}-${String(m).padStart(2,'0')}-01`, until:`${y}-${String(m).padStart(2,'0')}-${last}` };
+}
+
+function setPreset(el, preset) {
+  document.querySelectorAll('.date-preset').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  const s=document.getElementById('dateSince'), u=document.getElementById('dateUntil');
+  if(preset==='last_7')    { s.value=daysAgo(7);  u.value=today(); }
+  if(preset==='last_30')   { s.value=daysAgo(30); u.value=today(); }
+  if(preset==='this_month'){ s.value=firstOfMonth(); u.value=today(); }
+  if(preset==='last_month'){ const lm=lastMonth(); s.value=lm.since; u.value=lm.until; }
+  loadAll();
+}
+function clearPreset() { document.querySelectorAll('.date-preset').forEach(b=>b.classList.remove('active')); }
+
+function switchBrand(el) {
+  document.querySelectorAll('.brand-btn').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  currentBrand = el.dataset.brand;
+
+  // toggle body class for AT colours
+  document.body.classList.toggle('at', currentBrand === 'american_tourister');
+
+  // update topbar brand name
+  document.getElementById('topBrandName').textContent = BRAND_NAMES[currentBrand];
+
+  // update nav-dot active state
+  document.querySelectorAll('.nav-item.active .nav-dot').forEach(d => {
+    d.style.background = '';
+  });
+
+  // re-draw active preset button
+  document.querySelectorAll('.date-preset.active').forEach(b => {
+    b.style.background = '';
+    b.style.borderColor = '';
+  });
+
+  loadAll();
+}
+
+// ── Format ──────────────────────────────────────────────
+const fmt = {
+  spend: v=>`$${Number(v||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0})}`,
+  impressions: v=>Number(v||0).toLocaleString('en'),
+  cpm: v=>`$${Number(v||0).toFixed(2)}`,
+  inline_link_clicks: v=>Number(v||0).toLocaleString('en'),
+  inline_link_click_ctr: v=>`${Number(v||0).toFixed(2)}%`,
+  cost_per_inline_link_click: v=>`$${Number(v||0).toFixed(2)}`,
+};
+const labels = {
+  spend:'花費', impressions:'曝光', cpm:'CPM',
+  inline_link_clicks:'連結點擊', inline_link_click_ctr:'CTR(link)',
+  cost_per_inline_link_click:'CPC(link)'
+};
+
+function sum(arr,k){ return arr.reduce((a,r)=>a+Number(r[k]||0),0); }
+
+// ── Fetch ────────────────────────────────────────────────
+async function fetchInsights(level) {
+  const since = document.getElementById('dateSince').value;
+  const until = document.getElementById('dateUntil').value;
+  const accountId = ACCOUNT_IDS[currentBrand];
+
+  let fields = FIELDS;
+  if (level === 'campaign') fields += ',campaign_name,campaign_id';
+  if (level === 'adset')    fields += ',adset_name,adset_id,campaign_name';
+
+  const params = new URLSearchParams({
+    access_token: ACCESS_TOKEN,
+    fields,
+    time_range: JSON.stringify({ since, until }),
+    time_increment: 1,
+    level,
+    limit: 500,
+  });
+
+  const all = [];
+  let url = `${GRAPH_URL}/${accountId}/insights?${params}`;
+  while (url) {
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (json.error) return json;
+    all.push(...(json.data || []));
+    url = json.paging?.next || null;
+  }
+  return all;
+}
+
+// ── Summary cards ────────────────────────────────────────
+function renderCards(data) {
+  const sp=sum(data,'spend'), imp=sum(data,'impressions'), lc=sum(data,'inline_link_clicks');
+  const totals = {
+    spend: sp, impressions: imp, inline_link_clicks: lc,
+    cpm: imp>0?(sp/imp)*1000:0,
+    inline_link_click_ctr: imp>0?(lc/imp)*100:0,
+    cost_per_inline_link_click: lc>0?sp/lc:0,
+  };
+  document.getElementById('summaryCards').innerHTML = [
+    {k:'spend',label:'花費'},
+    {k:'impressions',label:'曝光'},
+    {k:'cpm',label:'CPM'},
+    {k:'inline_link_clicks',label:'連結點擊'},
+    {k:'inline_link_click_ctr',label:'CTR(link)'},
+    {k:'cost_per_inline_link_click',label:'CPC(link)'},
+  ].map(({k,label})=>`
+    <div class="card">
+      <div class="card-label">${label}</div>
+      <div class="card-value">${fmt[k](totals[k])}</div>
+    </div>
+  `).join('');
+}
+
+// ── Chart ────────────────────────────────────────────────
+function getChartColor() {
+  return currentBrand === 'american_tourister' ? '#3aab3a' : '#c8a96e';
+}
+
+function renderChart(data) {
+  dailyData = [...data].sort((a,b)=>a.date_start.localeCompare(b.date_start));
+  drawChart();
+}
+
+const MONEY_KEYS = new Set(['spend','cpm','cost_per_inline_link_click']);
+const PCT_KEYS   = new Set(['inline_link_click_ctr']);
+
+function axisFormatter(key) {
+  return v => {
+    if (MONEY_KEYS.has(key)) return '$' + Number(v).toLocaleString();
+    if (PCT_KEYS.has(key))   return Number(v).toFixed(2) + '%';
+    return Number(v).toLocaleString();
+  };
+}
+
+function drawChart() {
+  const ctx = document.getElementById('dailyChart').getContext('2d');
+  if (dailyChart) dailyChart.destroy();
+
+  const brandColor = getChartColor();
+  const modeDefs = MODES[activeMode].datasets;
+  const isMulti  = modeDefs.length > 1;
+  const pr = dailyData.length > 60 ? 0 : 4;
+
+  const datasets = modeDefs.map((def, i) => {
+    const color = (!isMulti) ? brandColor : def.color;
+    const isBar = def.type === 'bar';
+    return {
+      type: def.type,
+      label: def.label,
+      data: dailyData.map(r => ({ x: r.date_start, y: Number(r[def.key] || 0) })),
+      borderColor: color,
+      backgroundColor: isBar ? color + 'cc' : (i === 0 ? color + '18' : 'transparent'),
+      fill: !isBar && i === 0,
+      tension: 0.35,
+      pointRadius: isBar ? 0 : pr,
+      pointHoverRadius: isBar ? 0 : 6,
+      borderWidth: isBar ? 0 : 2.5,
+      borderRadius: isBar ? 4 : 0,
+      yAxisID: def.axis,
+      order: isBar ? 1 : 0,
+    };
+  });
+
+  const hasY1 = modeDefs.some(d => d.axis === 'y1');
+  const yKey  = modeDefs.find(d => d.axis === 'y')?.key  || 'spend';
+  const y1Key = modeDefs.find(d => d.axis === 'y1')?.key || '';
+
+  dailyChart = new Chart(ctx, {
+    type: 'bar',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 12 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const def = modeDefs[ctx.datasetIndex];
+              return `${def.label}: ${fmt[def.key](ctx.parsed.y)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { type: 'time', time: { unit: 'day', displayFormats: { day: 'M/d' } }, grid: { display: false } },
+        y: {
+          position: 'left',
+          grid: { color: '#f3f3f3' },
+          ticks: { callback: axisFormatter(yKey) }
+        },
+        ...(hasY1 ? {
+          y1: {
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: { callback: axisFormatter(y1Key) }
+          }
+        } : {})
+      }
+    }
+  });
+}
+
+function switchMode(el, mode) {
+  document.querySelectorAll('.metric-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  activeMode = mode;
+  drawChart();
+}
+
+// ── Tables ───────────────────────────────────────────────
+function computeTotals(data) {
+  const sp=sum(data,'spend'), imp=sum(data,'impressions'), lc=sum(data,'inline_link_clicks');
+  return {
+    spend:sp, impressions:imp, inline_link_clicks:lc,
+    cpm: imp>0?(sp/imp)*1000:0,
+    inline_link_click_ctr: imp>0?(lc/imp)*100:0,
+    cost_per_inline_link_click: lc>0?sp/lc:0,
+  };
+}
+
+const COL_LABEL = {
+  spend: '花費', impressions: '曝光', cpm: 'CPM',
+  inline_link_clicks: '連結點擊', inline_link_click_ctr: 'CTR(link)',
+  cost_per_inline_link_click: 'CPC(link)',
+};
+
+const ALL_COLS = ['spend','impressions','cpm','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click'];
+
+function buildRow(firstCell, r, cols) {
+  return `<tr>
+    <td>${firstCell}</td>
+    ${cols.map(k=>`<td>${fmt[k](r[k])}</td>`).join('')}
+  </tr>`;
+}
+
+function buildTable(rows, totals, firstCol, cols) {
+  const totalRow = `<tr class="total-row">
+    <td>合計 / 均值</td>
+    ${cols.map(k=>`<td>${fmt[k](totals[k])}</td>`).join('')}
+  </tr>`;
+  return `<table>
+    <thead><tr>
+      <th style="text-align:left">${firstCol}</th>
+      ${cols.map(k=>`<th>${COL_LABEL[k]}</th>`).join('')}
+    </tr></thead>
+    <tbody>${totalRow}${rows}</tbody>
+  </table>`;
+}
+
+function renderDailyTable(data) {
+  const sorted = [...data].sort((a,b)=>b.date_start.localeCompare(a.date_start));
+  const totals = computeTotals(data);
+  const rows = sorted.map(r=>buildRow(r.date_start, r, ALL_COLS)).join('');
+  document.getElementById('dailyTable').innerHTML = buildTable(rows, totals, '日期', ALL_COLS);
+}
+
+function renderCampaignTable(data) {
+  const map = {};
+  data.forEach(r=>{
+    const k=r.campaign_id||r.campaign_name||'Unknown';
+    if(!map[k]) map[k]={ name:r.campaign_name||k, rows:[] };
+    map[k].rows.push(r);
+  });
+  const groups = Object.values(map).map(g=>{ const t=computeTotals(g.rows); return {name:g.name,...t}; })
+    .sort((a,b)=>b.spend-a.spend);
+  const totals = computeTotals(groups);
+  const rows = groups.map(g=>buildRow(g.name,g,ALL_COLS)).join('');
+  document.getElementById('campaignTable').innerHTML = buildTable(rows,totals,'活動名稱',ALL_COLS);
+}
+
+function renderAdsetTable(data) {
+  const map = {};
+  data.forEach(r=>{
+    const k=r.adset_id||r.adset_name||'Unknown';
+    if(!map[k]) map[k]={ name:r.adset_name||k, rows:[] };
+    map[k].rows.push(r);
+  });
+  const groups = Object.values(map).map(g=>{ const t=computeTotals(g.rows); return {name:g.name,...t}; })
+    .sort((a,b)=>b.spend-a.spend);
+  const totals = computeTotals(groups);
+  const rows = groups.map(g=>buildRow(g.name,g,ALL_COLS)).join('');
+  document.getElementById('adsetTable').innerHTML = buildTable(rows,totals,'受眾名稱',ALL_COLS);
+}
+
+// ── Load ─────────────────────────────────────────────────
+function showLoading(id) {
+  document.getElementById(id).innerHTML='<div class="loading"><div class="spinner"></div> 載入中...</div>';
+}
+
+async function loadAll() {
+  showLoading('dailyTable');
+  showLoading('campaignTable');
+  showLoading('adsetTable');
+  document.getElementById('summaryCards').innerHTML='<div class="loading" style="grid-column:1/-1"><div class="spinner"></div> 載入中...</div>';
+
+  try {
+    const [daily, campaign, adset] = await Promise.all([
+      fetchInsights('account'),
+      fetchInsights('campaign'),
+      fetchInsights('adset'),
+    ]);
+    if(daily.error){ showError('dailyTable',daily.error.message); return; }
+    renderCards(daily);
+    renderChart(daily);
+    renderDailyTable(daily);
+    if(!campaign.error) { window._campaignData = campaign; renderCampaignTable(campaign); } else showError('campaignTable',campaign.error.message);
+    if(!adset.error)    { window._adsetData = adset;       renderAdsetTable(adset); }    else showError('adsetTable',adset.error.message);
+  } catch(e) {
+    ['dailyTable','campaignTable','adsetTable'].forEach(id=>
+      document.getElementById(id).innerHTML='<div class="error-msg">⚠️ 無法連線後端，請確認 server.py 已啟動（port 5001）</div>'
+    );
+    document.getElementById('summaryCards').innerHTML='<div class="error-msg" style="grid-column:1/-1">⚠️ 無法連線後端</div>';
+  }
+}
+
+function showError(id,msg) {
+  document.getElementById(id).innerHTML=`<div class="error-msg">⚠️ ${msg}</div>`;
+}
+
+// ── Init ──────────────────────────────────────────────────
+window.onload = () => {
+  setPreset(document.querySelector('[data-preset="last_30"]'),'last_30');
+};
+</script>
+</body>
+</html>
