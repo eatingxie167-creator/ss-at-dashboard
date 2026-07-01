@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NB 廣告監控儀表板</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f4f4f4; color: #222; font-size: 13px; }
+
+#token-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 999; }
+#token-box { background: #fff; border-radius: 8px; padding: 40px; width: 420px; text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+#token-box h2 { font-size: 20px; margin-bottom: 8px; }
+#token-box p { color: #666; font-size: 13px; margin-bottom: 24px; line-height: 1.5; }
+#token-input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; margin-bottom: 12px; font-family: monospace; }
+#token-remember { display: flex; align-items: center; gap: 6px; justify-content: center; margin-bottom: 20px; font-size: 13px; color: #444; }
+#token-submit { width: 100%; padding: 12px; background: #111; color: #fff; border: none; border-radius: 6px; font-size: 15px; cursor: pointer; font-weight: 600; }
+#token-submit:hover { background: #333; }
+#token-error { color: #c00; font-size: 12px; margin-top: 8px; min-height: 16px; }
+
+#wave-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 998; }
+#wave-box { background: #fff; border-radius: 8px; padding: 32px; width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+#wave-box h3 { font-size: 16px; margin-bottom: 20px; }
+.wave-field { margin-bottom: 12px; }
+.wave-field label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
+.wave-field input { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 13px; }
+.wave-actions { display: flex; gap: 8px; margin-top: 20px; }
+.wave-actions button { flex: 1; padding: 10px; border: none; border-radius: 5px; cursor: pointer; font-size: 13px; font-weight: 600; }
+#wave-save { background: #111; color: #fff; }
+#wave-cancel { background: #eee; color: #444; }
+
+header { background: #111; color: #fff; padding: 12px 24px 8px; position: sticky; top: 0; z-index: 10; }
+.header-top { display: flex; align-items: center; justify-content: space-between; }
+header h1 { font-size: 17px; font-weight: 700; }
+#header-right { display: flex; align-items: center; gap: 10px; }
+#refresh-btn { background: #333; color: #fff; border: none; padding: 7px 13px; border-radius: 5px; cursor: pointer; font-size: 13px; }
+#refresh-btn:hover { background: #555; }
+#logout-btn { background: #444; color: #fff; border: none; padding: 7px 11px; border-radius: 5px; cursor: pointer; font-size: 13px; }
+#last-update { font-size: 12px; color: #aaa; }
+
+#wave-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.wave-btn { background: #333; color: #ccc; border: none; padding: 4px 12px; border-radius: 12px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.wave-btn:hover { background: #555; }
+.wave-btn.active { background: #fff; color: #111; font-weight: 600; }
+.wave-btn.add-btn { background: transparent; border: 1px solid #555; color: #aaa; }
+.wave-btn.add-btn:hover { border-color: #aaa; color: #fff; }
+
+#status-bar { background: #222; color: #aaa; padding: 6px 24px; font-size: 12px; display: flex; align-items: center; gap: 16px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #888; display: inline-block; margin-right: 4px; }
+.dot.loading { background: #f90; animation: pulse 1s infinite; }
+.dot.ok { background: #0c0; }
+.dot.err { background: #c00; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+
+main { padding: 20px 24px; max-width: 1700px; margin: 0 auto; }
+
+.section { background: #fff; border-radius: 8px; margin-bottom: 24px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.section-header { padding: 14px 20px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px; }
+.section-header h2 { font-size: 16px; font-weight: 700; }
+.badge-count { background: #f0f0f0; color: #666; font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+.section-body { overflow-x: auto; }
+.section-note { padding: 8px 20px; font-size: 12px; color: #888; background: #fafafa; border-top: 1px solid #eee; }
+
+table { width: 100%; border-collapse: collapse; }
+thead tr { background: #fafafa; }
+th { padding: 9px 10px; text-align: left; font-size: 11px; font-weight: 600; color: #555; border-bottom: 1px solid #eee; white-space: nowrap; border-right: 1px solid #f0f0f0; }
+td { padding: 9px 10px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; font-size: 12px; border-right: 1px solid #f5f5f5; }
+td:last-child, th:last-child { border-right: none; }
+tr:last-child td { border-bottom: none; }
+.row-hover:hover td { background: #fafafa; }
+
+.mf-first-row td { border-bottom: none; }
+.mf-second-row td { border-bottom: 1px solid #e0e0e0; }
+.mf-first-row .gender-cell { background: #fce4ec; }
+.mf-second-row .gender-cell { background: #e3f2fd; }
+
+.badge-ok { display: inline-flex; align-items: center; gap: 4px; background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge-warn { display: inline-flex; align-items: center; gap: 4px; background: #fffde7; color: #f57f17; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge-err { display: inline-flex; align-items: center; gap: 4px; background: #ffebee; color: #c62828; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge-na { display: inline-flex; align-items: center; gap: 4px; background: #f5f5f5; color: #999; padding: 2px 8px; border-radius: 12px; font-size: 11px; white-space: nowrap; }
+.badge-pending { display: inline-flex; align-items: center; gap: 4px; background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 11px; white-space: nowrap; }
+.badge-notfound { display: inline-flex; align-items: center; gap: 4px; background: #fff9c4; color: #f57f17; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.red-x { color: #c62828; font-weight: 700; font-size: 13px; }
+
+.prog-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 100px; }
+.prog-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 3px; }
+.prog-fill.ok { background: #4caf50; }
+.prog-fill.warn { background: #fbc02d; }
+.prog-fill.over { background: #c62828; }
+.prog-fill.pending { background: #90caf9; }
+.prog-label { font-size: 10px; color: #999; text-align: right; }
+
+.gender-chip { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 12px; font-weight: 600; }
+.gender-chip.f { background: #fce4ec; color: #880e4f; }
+.gender-chip.m { background: #e3f2fd; color: #0d47a1; }
+.ta-chip { display: inline-block; background: #f0f0f0; color: #555; font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-left: 3px; }
+
+.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.num-ok { color: #2e7d32; font-weight: 600; }
+.num-warn { color: #f57f17; font-weight: 600; }
+.num-muted { color: #bbb; }
+.num-err { color: #c62828; font-weight: 600; }
+.text-red { color: #c62828 !important; font-weight: 600; }
+
+.camp-name { max-width: 45px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: #888; cursor: pointer; display: block; user-select: none; }
+.camp-name:hover { color: #111; text-decoration: underline; }
+.material-cell { font-weight: 600; font-size: 12px; }
+.age-range-text { font-size: 12px; white-space: nowrap; font-weight: 600; color: #333; }
+
+.region-list { display: flex; flex-wrap: wrap; gap: 4px; max-width: 260px; }
+.region-tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.region-tag.in { background: #e8f5e9; color: #2e7d32; }
+.region-tag.out { background: #ffebee; color: #c62828; }
+.region-tag.neutral { background: #f5f5f5; color: #888; }
+
+.loading-row td { text-align: center; padding: 40px; color: #999; }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #666; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.col-sep { border-left: 2px solid #e8e8e8 !important; }
+.no-data { text-align: center; padding: 24px; color: #aaa; font-style: italic; }
+
+.copy-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #222; color: #fff; padding: 8px 18px; border-radius: 20px; font-size: 13px; z-index: 9999; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+.copy-toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="token-overlay">
+  <div id="token-box">
+    <h2>🔐 輸入 Meta Access Token</h2>
+    <p>Token 僅存在您的瀏覽器，不會上傳至伺服器。<br>請至 Meta Graph API Explorer 取得有效 Token。</p>
+    <input type="password" id="token-input" placeholder="EAAxxxxxx..." />
+    <label id="token-remember"><input type="checkbox" id="token-save" checked> 記住 Token（存在此瀏覽器）</label>
+    <button id="token-submit">載入儀表板</button>
+    <div id="token-error"></div>
+  </div>
+</div>
+
+<div id="wave-modal">
+  <div id="wave-box">
+    <h3 id="wave-modal-title">新增波次</h3>
+    <div class="wave-field">
+      <label>波次名稱（顯示用）</label>
+      <input id="wave-name-input" placeholder="例：2026 10K">
+    </div>
+    <div class="wave-field">
+      <label>廣告活動前綴</label>
+      <input id="wave-prefix-input" placeholder="例：MC61306X">
+    </div>
+    <div class="wave-field">
+      <label>計畫走期分頁連結（點到該分頁再複製網址）</label>
+      <input id="wave-sheet-input" placeholder="貼上含 gid 的完整連結">
+    </div>
+    <div class="wave-field">
+      <label>受眾分頁連結（選填，點到受眾分頁再複製網址）</label>
+      <input id="wave-audience-input" placeholder="貼上含 gid 的完整連結，或留空自動偵測">
+    </div>
+    <div class="wave-actions">
+      <button id="wave-save">儲存</button>
+      <button id="wave-delete" style="background:#c62828;color:#fff;display:none">刪除此波次</button>
+      <button id="wave-cancel">取消</button>
+    </div>
+    <div id="wave-error" style="color:#c00;font-size:12px;margin-top:8px"></div>
+  </div>
+</div>
+
+<div id="copy-toast" class="copy-toast">已複製</div>
+
+<header>
+  <div class="header-top">
+    <h1>New Balance 廣告監控儀表板</h1>
+    <div id="header-right">
+      <span id="last-update"></span>
+      <button id="refresh-btn">↻ 重新抓取</button>
+      <button id="logout-btn">登出</button>
+    </div>
+  </div>
+  <div id="wave-bar"></div>
+</header>
+
+<div id="status-bar">
+  <span><span class="dot" id="dot-meta"></span>Meta API</span>
+  <span><span class="dot" id="dot-sheet"></span>Google Sheets</span>
+  <span id="status-msg">等待載入...</span>
+</div>
+
+<main>
+  <!-- Main combined table -->
+  <div class="section">
+    <div class="section-header">
+      <h2 id="main-section-title">📊 廣告活動監控總覽</h2>
+      <span class="badge-count" id="main-badge">—</span>
+    </div>
+    <div class="section-body">
+      <table id="main-table">
+        <thead>
+          <tr>
+            <th rowspan="2">素材 / TA</th>
+            <th rowspan="2">目標</th>
+            <th rowspan="2">走期</th>
+            <th rowspan="2">計畫<br>總預算</th>
+            <th rowspan="2">性別</th>
+            <th rowspan="2">對應廣告活動</th>
+            <th colspan="5" style="text-align:center;background:#fffde7;border-bottom:1px solid #eee;">💰 花費進度</th>
+            <th colspan="2" style="text-align:center;background:#fce4ec;border-bottom:1px solid #eee;">⚧ 性別</th>
+            <th colspan="3" style="text-align:center;background:#e8f5e9;border-bottom:1px solid #eee;">🎂 年齡</th>
+          </tr>
+          <tr>
+            <th class="col-sep" style="background:#fffde7">今日應花</th>
+            <th style="background:#fffde7">累積下限<br><span style="font-weight:400;color:#999">（含昨日）</span></th>
+            <th style="background:#fffde7">累積上限<br><span style="font-weight:400;color:#999">（含今日）</span></th>
+            <th style="background:#fffde7">實際花費</th>
+            <th style="background:#fffde7">進度</th>
+            <th class="col-sep" style="background:#fce4ec">性別</th>
+            <th style="background:#fce4ec">性別狀態</th>
+            <th class="col-sep" style="background:#e8f5e9">計畫年齡</th>
+            <th style="background:#e8f5e9">範圍外花費</th>
+            <th style="background:#e8f5e9">年齡狀態</th>
+          </tr>
+        </thead>
+        <tbody id="main-tbody">
+          <tr class="loading-row"><td colspan="16"><span class="spinner"></span>載入中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="section-note">下限 = 計畫表走期開始至昨日累積預算；上限 = 至今日累積；M/F 活動按受眾建議比例分配預算；誤差 $100 內視為正常</div>
+  </div>
+
+  <!-- Unmatched campaigns (independent section) -->
+  <div class="section" id="unmatched-section" style="display:none">
+    <div class="section-header">
+      <h2>⚠️ 計畫表外廣告活動</h2>
+      <span class="badge-count" id="unmatched-badge">—</span>
+    </div>
+    <div class="section-body">
+      <table id="unmatched-table">
+        <thead>
+          <tr>
+            <th>廣告活動名稱</th>
+            <th>目標</th>
+            <th>走期</th>
+            <th>實際花費</th>
+          </tr>
+        </thead>
+        <tbody id="unmatched-tbody"></tbody>
+      </table>
+    </div>
+    <div class="section-note">Meta 廣告帳戶中有此波次前綴，但在計畫表中未找到對應</div>
+  </div>
+
+  <!-- Region table -->
+  <div class="section">
+    <div class="section-header">
+      <h2>📍 地區投遞比對</h2>
+      <span class="badge-count" id="region-badge">—</span>
+    </div>
+    <div class="section-body">
+      <table id="region-table">
+        <thead>
+          <tr>
+            <th>素材 / TA</th>
+            <th>目標</th>
+            <th>性別</th>
+            <th>計畫地區</th>
+            <th>實際投遞地區（比例）</th>
+            <th>計畫外比例</th>
+            <th>狀態</th>
+          </tr>
+        </thead>
+        <tbody id="region-tbody">
+          <tr class="loading-row"><td colspan="7"><span class="spinner"></span>載入中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="section-note">全台設定：檢查是否有投遞至台灣以外地區；北北基桃 = 台北市、新北市、基隆市、桃園市；計畫外比例 ≤5% 為正常</div>
+  </div>
+</main>
+
+<script>
+// ============================================================
+// WAVE MANAGEMENT
+// ============================================================
+const DEFAULT_WAVES = [
+  { name: '2026 10K', prefix: 'MC61306X', sheetId: '1JEFX59KkyxW8BmZ5cyeimlWf8mJHxBpdiAPYbEkUoOA', gid: '1008318717', audienceGid: '1448349216' },
+  { name: '2026 NB Summer', prefix: 'MC61604X', sheetId: '1wBWSGWMHH8G8EoYNc-DSlAMpjVZSf_WGD66-EnPoyUk', gid: '1389637111', audienceGid: '1960512110' }
+];
+let waves = JSON.parse(localStorage.getItem('nb_waves') || 'null') || DEFAULT_WAVES;
+let activeWaveIdx = parseInt(localStorage.getItem('nb_active_wave') || '0');
+if (activeWaveIdx >= waves.length) activeWaveIdx = 0;
+
+function saveWavesState() {
+  localStorage.setItem('nb_waves', JSON.stringify(waves));
+  localStorage.setItem('nb_active_wave', String(activeWaveIdx));
+}
+
+function extractSheetInfo(input) {
+  const s = (input || '').trim();
+  // 從完整 URL 提取 sheetId
+  const idMatch = s.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+  // 若無完整 URL，直接把 ? 前的部分當 sheetId
+  const sheetId = idMatch ? idMatch[1] : s.split(/[?#]/)[0].trim();
+  // 提取 gid
+  const gidMatch = s.match(/[?&#]gid=(\d+)/);
+  const gid = gidMatch ? gidMatch[1] : null;
+  return { sheetId, gid };
+}
+
+function extractSheetId(input) {
+  return extractSheetInfo(input).sheetId;
+}
+
+function applyWave(idx) {
+  activeWaveIdx = idx;
+  const w = waves[idx];
+  CFG.campaignPrefix = w.prefix;
+  CFG.sheetId = w.sheetId;
+  CFG.sheetGid = w.gid || null;
+  CFG.audienceGid = w.audienceGid || null;
+  const title = document.getElementById('main-section-title');
+  if (title) title.textContent = `📊 廣告活動監控總覽 — ${w.name} ${w.prefix}`;
+  saveWavesState();
+  renderWaveButtons();
+  if (getToken()) loadDashboard();
+}
+
+function renderWaveButtons() {
+  const bar = document.getElementById('wave-bar');
+  bar.innerHTML = '';
+  waves.forEach((w, i) => {
+    const wrap = document.createElement('span');
+    wrap.style.cssText = 'display:inline-flex;align-items:center;gap:2px';
+    const btn = document.createElement('button');
+    btn.className = 'wave-btn' + (i === activeWaveIdx ? ' active' : '');
+    btn.textContent = `${w.name} (${w.prefix})`;
+    btn.onclick = () => applyWave(i);
+    const editBtn = document.createElement('button');
+    editBtn.textContent = '✏️';
+    editBtn.title = '編輯此波次';
+    editBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px;opacity:0.6;line-height:1';
+    editBtn.onmouseenter = () => editBtn.style.opacity = '1';
+    editBtn.onmouseleave = () => editBtn.style.opacity = '0.6';
+    editBtn.onclick = (e) => { e.stopPropagation(); openWaveModal(i); };
+    wrap.appendChild(btn);
+    wrap.appendChild(editBtn);
+    bar.appendChild(wrap);
+  });
+  const addBtn = document.createElement('button');
+  addBtn.className = 'wave-btn add-btn';
+  addBtn.textContent = '+ 新增波次';
+  addBtn.onclick = () => openWaveModal(null);
+  bar.appendChild(addBtn);
+}
+
+let editingWaveIdx = null;
+
+function openWaveModal(idx) {
+  editingWaveIdx = idx;
+  const isEdit = idx !== null;
+  document.getElementById('wave-modal-title').textContent = isEdit ? '編輯波次' : '新增波次';
+  document.getElementById('wave-delete').style.display = isEdit ? 'inline-block' : 'none';
+  document.getElementById('wave-error').textContent = '';
+  if (isEdit) {
+    const w = waves[idx];
+    document.getElementById('wave-name-input').value = w.name;
+    document.getElementById('wave-prefix-input').value = w.prefix;
+    document.getElementById('wave-sheet-input').value = w.gid ? `${w.sheetId}?gid=${w.gid}` : w.sheetId;
+    document.getElementById('wave-audience-input').value = w.audienceGid ? `${w.sheetId}?gid=${w.audienceGid}` : '';
+  } else {
+    ['wave-name-input','wave-prefix-input','wave-sheet-input','wave-audience-input'].forEach(id => document.getElementById(id).value = '');
+  }
+  document.getElementById('wave-modal').style.display = 'flex';
+}
+
+function closeWaveModal() {
+  document.getElementById('wave-modal').style.display = 'none';
+}
+
+document.getElementById('wave-save').addEventListener('click', () => {
+  const name = document.getElementById('wave-name-input').value.trim();
+  const prefix = document.getElementById('wave-prefix-input').value.trim();
+  const sheetRaw = document.getElementById('wave-sheet-input').value.trim();
+  const errEl = document.getElementById('wave-error');
+  if (!name || !prefix || !sheetRaw) { errEl.textContent = '請填寫所有欄位'; return; }
+  const { sheetId, gid } = extractSheetInfo(sheetRaw);
+  const audienceRaw = document.getElementById('wave-audience-input').value.trim();
+  const audienceGid = audienceRaw ? (extractSheetInfo(audienceRaw).gid || null) : null;
+  if (editingWaveIdx !== null) {
+    waves[editingWaveIdx] = { name, prefix, sheetId, gid, audienceGid };
+  } else {
+    waves.push({ name, prefix, sheetId, gid, audienceGid });
+  }
+  saveWavesState();
+  closeWaveModal();
+  renderWaveButtons();
+  if (editingWaveIdx !== null) loadDashboard();
+});
+
+document.getElementById('wave-delete').addEventListener('click', () => {
+  if (editingWaveIdx === null) return;
+  if (!confirm(`確定要刪除「${waves[editingWaveIdx].name}」這個波次嗎？`)) return;
+  waves.splice(editingWaveIdx, 1);
+  activeWaveIdx = Math.max(0, activeWaveIdx - 1);
+  saveWavesState();
+  closeWaveModal();
+  renderWaveButtons();
+  loadDashboard();
+});
+
+document.getElementById('wave-cancel').addEventListener('click', closeWaveModal);
+
+// ============================================================
+// CONFIG
+// ============================================================
+const CFG = {
+  adAccount: '2635441279972097',
+  year: 2026,
+  apiVersion: 'v21.0',
+  campaignPrefix: waves[activeWaveIdx]?.prefix || 'MC61306X',
+  sheetId: waves[activeWaveIdx]?.sheetId || '',
+  sheetGid: waves[activeWaveIdx]?.gid || null,
+  audienceGid: waves[activeWaveIdx]?.audienceGid || null,
+};
+
+// ============================================================
+// TOKEN
+// ============================================================
+const getToken = () => localStorage.getItem('nb_meta_token') || sessionStorage.getItem('nb_meta_token');
+const setToken = (t, remember) => {
+  if (remember) localStorage.setItem('nb_meta_token', t);
+  else localStorage.removeItem('nb_meta_token');
+  sessionStorage.setItem('nb_meta_token', t);
+};
+const clearToken = () => { localStorage.removeItem('nb_meta_token'); sessionStorage.removeItem('nb_meta_token'); };
+
+document.getElementById('token-submit').addEventListener('click', async () => {
+  const val = document.getElementById('token-input').value.trim();
+  const save = document.getElementById('token-save').checked;
+  const errEl = document.getElementById('token-error');
+  if (!val) { errEl.textContent = '請輸入 Token'; return; }
+  errEl.textContent = '驗證中...';
+  try {
+    const r = await fetch(`https://graph.facebook.com/${CFG.apiVersion}/me?access_token=${val}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error.message);
+    setToken(val, save);
+    document.getElementById('token-overlay').style.display = 'none';
+    loadDashboard();
+  } catch (e) { errEl.textContent = '❌ ' + e.message; }
+});
+document.getElementById('logout-btn').addEventListener('click', () => {
+  clearToken();
+  document.getElementById('token-overlay').style.display = 'flex';
+  document.getElementById('token-input').value = '';
+});
+document.getElementById('refresh-btn').addEventListener('click', loadDashboard);
+
+// ============================================================
+// COPY TO CLIPBOARD
+// ============================================================
+function showCopyToast() {
+  const t = document.getElementById('copy-toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1500);
+}
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showCopyToast).catch(() => fallbackCopy(text));
+  } else { fallbackCopy(text); }
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand('copy'); showCopyToast(); } catch(e) {}
+  document.body.removeChild(ta);
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('.camp-name[data-copy]');
+  if (el) copyText(el.dataset.copy);
+});
+
+// ============================================================
+// STATUS
+// ============================================================
+function setStatus(dotId, state, msg) {
+  document.getElementById(dotId).className = 'dot ' + state;
+  if (msg) document.getElementById('status-msg').textContent = msg;
+}
+
+// ============================================================
+// META API
+// ============================================================
+async function metaFetch(path, params = {}) {
+  const url = new URL(`https://graph.facebook.com/${CFG.apiVersion}/${path}`);
+  url.searchParams.set('access_token', getToken());
+  for (const [k, v] of Object.entries(params))
+    url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.error) throw new Error(`[${data.error.code}] ${data.error.message}`);
+  return data;
+}
+
+async function metaFetchAll(path, params = {}) {
+  let results = [];
+  let data = await metaFetch(path, { ...params, limit: 500 });
+  if (Array.isArray(data.data)) results = results.concat(data.data);
+  while (data.paging?.next) {
+    const nextUrl = new URL(data.paging.next);
+    nextUrl.searchParams.set('access_token', getToken());
+    const res = await fetch(nextUrl);
+    data = await res.json();
+    if (data.error) break;
+    if (Array.isArray(data.data)) results = results.concat(data.data);
+  }
+  return results;
+}
+
+// ============================================================
+// CSV PARSER
+// ============================================================
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], n = text[i + 1];
+    if (inQ) {
+      if (c === '"' && n === '"') { field += '"'; i++; }
+      else if (c === '"') inQ = false;
+      else field += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\r' && n === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; }
+      else if (c === '\n' || c === '\r') { row.push(field); rows.push(row); row = []; field = ''; }
+      else field += c;
+    }
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+// ============================================================
+// SHEET FETCH WITH AUTO-DETECTION
+// ============================================================
+const MONTH_MAP = { May:4, June:5, Jul:6, July:6, Aug:7, August:7, September:8, Oct:9, October:9, November:10 };
+const AUDIENCE_KEYWORDS = ['地區', '男女比', 'TA：', 'TA:', '鎖定'];
+const COMMON_AUDIENCE_NAMES = ['受眾建議', '受眾', 'Audience', 'audience', '受眾設定', '受眾資料'];
+const COMMON_BUDGET_NAMES = ['走期', '計畫走期', '預算', 'Budget', 'budget', 'Plan', 'plan', '計畫', 'Sheet1', 'Sheet2'];
+const BUDGET_KEYWORDS = ['Material', 'Note', 'Placement', 'Engage', 'Reach'];
+
+function isLikelyBudgetSheet(rows) {
+  const hasMonth = (rows[0] || []).some(cell => MONTH_MAP[(cell || '').trim()] !== undefined);
+  if (hasMonth) return true;
+  // 也接受含有 Material/Note 的表（無月份名的走期格式）
+  const flat = rows.slice(0, 5).flat().join(' ');
+  return BUDGET_KEYWORDS.filter(k => flat.includes(k)).length >= 2;
+}
+function isLikelyAudienceSheet(rows) {
+  const flat = rows.flat().join(' ');
+  return AUDIENCE_KEYWORDS.some(kw => flat.includes(kw));
+}
+
+// 統一 fetch 邏輯：優先用 gid，其次用分頁名稱，最後用預設第一頁
+async function fetchSheetTab(gid, sheetName) {
+  const base = `https://docs.google.com/spreadsheets/d/${CFG.sheetId}/gviz/tq?tqx=out:csv`;
+  let url;
+  if (gid) {
+    url = `${base}&gid=${gid}`;
+  } else if (sheetName) {
+    url = `${base}&sheet=${encodeURIComponent(sheetName)}`;
+  } else {
+    url = base;
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('無法讀取試算表');
+  const text = await res.text();
+  if (text.trim().startsWith('<')) throw new Error('試算表未公開或格式錯誤');
+  return parseCSV(text);
+}
+
+// 舊名保留，供內部呼叫（無 gid 時用分頁名稱或預設）
+async function fetchSheetRaw(sheetName) {
+  return fetchSheetTab(sheetName ? null : CFG.sheetGid, sheetName);
+}
+
+async function fetchSheets() {
+  // 1. 計畫走期表：有指定 gid → 直接抓；否則試常見名稱
+  let budgetSheet = await fetchSheetTab(CFG.sheetGid, null);
+  if (!isLikelyBudgetSheet(budgetSheet)) {
+    for (const name of COMMON_BUDGET_NAMES) {
+      try {
+        const candidate = await fetchSheetTab(null, name);
+        if (isLikelyBudgetSheet(candidate)) { budgetSheet = candidate; break; }
+      } catch(e) { /* try next */ }
+    }
+  }
+
+  // 2. 受眾表：有指定 gid → 直接抓；否則試常見名稱
+  let audienceSheet = [];
+  if (CFG.audienceGid) {
+    try { audienceSheet = await fetchSheetTab(CFG.audienceGid, null); } catch(e) { /* fall through */ }
+  }
+  if (audienceSheet.length === 0) {
+    for (const name of COMMON_AUDIENCE_NAMES) {
+      try {
+        const candidate = await fetchSheetTab(null, name);
+        if (isLikelyAudienceSheet(candidate)) { audienceSheet = candidate; break; }
+      } catch(e) { /* try next */ }
+    }
+  }
+
+  // 3. 若第一頁像受眾表而不像走期表，互換
+  if (audienceSheet.length === 0 && !isLikelyBudgetSheet(budgetSheet) && isLikelyAudienceSheet(budgetSheet)) {
+    return [[], budgetSheet];
+  }
+
+  return [budgetSheet, audienceSheet];
+}
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+const OBJ_MAP = { CPE:'Engage', CPM:'Reach', CPL:'Links', CPV:'View' };
+const KNOWN_TA = new Set(['大眾', '女性跑者']);
+const AGE_MIN = {'13-17':13,'18-24':18,'25-34':25,'35-44':35,'45-54':45,'55-64':55,'65+':65};
+const AGE_MAX = {'13-17':17,'18-24':24,'25-34':34,'35-44':44,'45-54':54,'55-64':64,'65+':99};
+
+const REGION_ABBREV = { '北北基桃': ['台北市','新北市','基隆市','桃園市'] };
+const REGION_ALIAS = {
+  '新竹': ['新竹市','新竹縣'], '宜蘭': ['宜蘭縣'], '台中': ['台中市'], '台南': ['台南市'],
+  '高雄': ['高雄市'], '苗栗': ['苗栗縣'], '彰化': ['彰化縣'], '南投': ['南投縣'],
+  '雲林': ['雲林縣'], '嘉義': ['嘉義市','嘉義縣'], '屏東': ['屏東縣'],
+  '花蓮': ['花蓮縣'], '台東': ['台東縣'], '澎湖': ['澎湖縣'],
+};
+const REGION_EN_ZH = {
+  'Taipei City':'台北市','New Taipei City':'新北市','Keelung City':'基隆市','Taoyuan City':'桃園市',
+  'Hsinchu City':'新竹市','Hsinchu County':'新竹縣','Yilan County':'宜蘭縣','Taichung City':'台中市',
+  'Tainan City':'台南市','Kaohsiung City':'高雄市','Pingtung County':'屏東縣','Miaoli County':'苗栗縣',
+  'Changhua County':'彰化縣','Nantou County':'南投縣','Yunlin County':'雲林縣','Chiayi City':'嘉義市',
+  'Chiayi County':'嘉義縣','Taitung County':'台東縣','Hualien County':'花蓮縣','Penghu County':'澎湖縣',
+  'Kinmen County':'金門縣','Lienchiang County':'連江縣',
+  'Taipei':'台北市','New Taipei':'新北市','Taoyuan':'桃園市','Hsinchu':'新竹市',
+};
+const TAIWAN_REGIONS = new Set([
+  // 中文
+  '台北市','臺北市','新北市','基隆市','桃園市','桃園縣',
+  '新竹市','新竹縣','宜蘭縣','苗栗縣','台中市','臺中市',
+  '彰化縣','南投縣','雲林縣','嘉義市','嘉義縣',
+  '台南市','臺南市','高雄市','屏東縣','台東縣','臺東縣',
+  '花蓮縣','澎湖縣','金門縣','連江縣',
+  // 英文全名
+  'Taipei City','New Taipei City','Keelung City','Taoyuan City',
+  'Hsinchu City','Hsinchu County','Yilan County','Taichung City',
+  'Tainan City','Kaohsiung City','Pingtung County','Miaoli County',
+  'Changhua County','Nantou County','Yunlin County','Chiayi City',
+  'Chiayi County','Taitung County','Hualien County','Penghu County',
+  'Kinmen County','Lienchiang County',
+  // 英文短名（Meta API 常回傳）
+  'Taipei','New Taipei','Taoyuan','Keelung',
+  'Hsinchu','Yilan','Taichung','Tainan','Kaohsiung',
+  'Pingtung','Miaoli','Changhua','Nantou','Yunlin',
+  'Chiayi','Taitung','Hualien','Penghu','Kinmen','Lienchiang',
+]);
+
+// ============================================================
+// SHEET 1: DATE-COLUMN MAP
+// ============================================================
+function buildDateColMap(rows) {
+  const monthRow = rows[0] || [], dayRow = rows[1] || [];
+  const colDate = {};
+  let curMonth = null;
+  for (let c = 0; c < Math.max(monthRow.length, dayRow.length); c++) {
+    const m = (monthRow[c] || '').trim();
+    if (m && MONTH_MAP[m] !== undefined) curMonth = MONTH_MAP[m];
+    const d = (dayRow[c] || '').trim();
+    if (d && /^\d+$/.test(d) && curMonth !== null)
+      colDate[c] = new Date(CFG.year, curMonth, parseInt(d));
+  }
+  return colDate;
+}
+
+function parseBudgetNum(str) {
+  if (!str) return 0;
+  const n = parseFloat(str.replace(/[$,\s]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function detectPlanCols(rows) {
+  for (let r = 0; r < Math.min(rows.length, 6); r++) {
+    const row = rows[r] || [];
+    const matIdx = row.findIndex(c => /material/i.test(c) || /素材/i.test(c));
+    const noteIdx = row.findIndex(c => /^note$/i.test((c||'').trim()));
+    const placementIdx = row.findIndex(c => /^placement$/i.test((c||'').trim()));
+    if (matIdx >= 0 && noteIdx >= 0) {
+      return { headerRow: r, matIdx, noteIdx, budgetIdx: noteIdx + 1, placementIdx };
+    }
+  }
+  return { headerRow: 2, matIdx: 5, noteIdx: 7, budgetIdx: 8, placementIdx: 3 };
+}
+
+function extractGNum(str) {
+  const s = str || '';
+  // 支援 G1, G2, Group-1, Group-2 等格式
+  const m = s.match(/\bGroup[-\s]?(\d+)\b/i) || s.match(/\bG(\d+)\b/i);
+  return m ? 'G' + m[1] : null;
+}
+
+function buildPlanRows(rows, colDate) {
+  const { headerRow, matIdx, noteIdx, budgetIdx, placementIdx } = detectPlanCols(rows);
+  const plan = [];
+  let lastMat = '', lastPlacement = '';
+  for (let r = headerRow + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length < budgetIdx + 1) continue;
+    const mat = row[matIdx]?.trim() || lastMat;
+    const note = row[noteIdx]?.trim();
+    const budgetStr = row[budgetIdx]?.trim();
+    const placement = (placementIdx >= 0 ? row[placementIdx]?.trim() : '') || lastPlacement;
+    if (mat) lastMat = mat;
+    if (placement) lastPlacement = placement;
+    if (!note) continue;
+    const gNum = extractGNum(placement);
+    const daily = {};
+    for (const [col, date] of Object.entries(colDate)) {
+      const val = parseBudgetNum(row[col]);
+      if (val > 0) daily[dateKey(date)] = val;
+    }
+    // Budget 欄空白時，用每日預算加總
+    const dailyTotal = Object.values(daily).reduce((a, b) => a + b, 0);
+    const totalBudget = parseBudgetNum(budgetStr) || dailyTotal;
+    plan.push({ material: mat, ta: '-', note, totalBudget, daily, placement, gNum });
+  }
+  return plan;
+}
+
+function getPlanDateRange(planRow) {
+  const dates = Object.keys(planRow.daily).sort();
+  if (dates.length === 0) return null;
+  // 用本地時間解析，避免 "2026-07-05" 被當 UTC 導致跨日誤差
+  const parseLocal = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+  return { start: parseLocal(dates[0]), end: parseLocal(dates[dates.length - 1]) };
+}
+
+// ============================================================
+// SHEET 2: AUDIENCE
+// ============================================================
+function parseAudienceSheet(rows) {
+  console.log('[audience] total rows:', rows.length);
+  if (rows.length > 0) console.log('[audience] header:', JSON.stringify(rows[0]));
+  if (rows.length > 1) console.log('[audience] row1:', JSON.stringify(rows[1]));
+  const hdr = rows[0] || [];
+  const placementIdx = hdr.findIndex(h => /^placement$/i.test(h.trim()));
+  const matIdx = hdr.findIndex(h => h.includes('Material'));
+  const taIdx = hdr.findIndex(h => h.trim() === 'TA');
+  const mfIdx = hdr.findIndex(h => h.trim() === 'M/F');
+  let noteIdx = hdr.findIndex(h => h.trim() === 'Note');
+  let descIdx = hdr.findIndex(h => h.includes('Target Audience'));
+  if (descIdx === -1) descIdx = 7;
+  if (noteIdx === -1 && matIdx >= 0 && descIdx > matIdx + 1) noteIdx = matIdx + 1;
+  console.log('[audience] matIdx:', matIdx, 'noteIdx:', noteIdx, 'descIdx:', descIdx);
+
+  const audience = [];
+  let lastDesc = '';
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length < 3) continue;
+    const placement = placementIdx >= 0 ? (row[placementIdx] || '').trim() : '';
+    const gNum = extractGNum(placement) || extractGNum((row[matIdx] || ''));
+    const mat = (row[matIdx] || '').trim();
+    const ta = taIdx >= 0 ? (row[taIdx] || '').trim() || '-' : '-';
+    const note = noteIdx >= 0 ? (row[noteIdx] || '').trim() : '';
+    const desc = (row[descIdx] || '').trim() || lastDesc;
+    if (desc) lastDesc = desc;
+    if (!mat && !note && !placement) continue;
+
+    // 男女比：優先讀 M/F 欄，沒填或「不鎖男女」就是全性別（null）
+    const mfRaw = mfIdx >= 0 ? (row[mfIdx] || '').trim() : '';
+    let genderRatio = null;
+    const mfNum = mfRaw.match(/男\s*(\d+)\s*女\s*(\d+)/);
+    if (mfNum) {
+      const m = parseInt(mfNum[1]), f = parseInt(mfNum[2]);
+      genderRatio = { male: m/(m+f), female: f/(m+f) };
+    } else {
+      // 備用：從長描述找（舊格式相容）
+      const gm = desc.match(/男女比?[鎖定]*\s*(\d+)\s*[:：]\s*(\d+)/);
+      if (gm) {
+        const m = parseInt(gm[1]), f = parseInt(gm[2]);
+        genderRatio = { male: m/(m+f), female: f/(m+f) };
+      }
+    }
+
+    const am = desc.match(/TA[：:﹕]\s*(\d+)\s*[-－~～–—至到]\s*(\d+)/i)
+            || desc.match(/(\d{2})\s*[-－~～–—]\s*(\d{2})\s*[歲A（(]/);
+    const ageRange = am ? { min: parseInt(am[1]), max: parseInt(am[2]) } : null;
+    console.log('[audience]', mat, note, '| desc:', desc.slice(0,60), '| age:', ageRange);
+
+    const rm = desc.match(/地區[：:]\s*([^\/／\n]+)/);
+    let planRegion = null;
+    if (rm) {
+      const regionStr = rm[1].trim();
+      if (!regionStr.includes('台灣') && !regionStr.includes('全台')) {
+        const regions = new Set();
+        let str = regionStr;
+        for (const [abbr, expanded] of Object.entries(REGION_ABBREV)) {
+          if (str.includes(abbr)) { expanded.forEach(r2 => regions.add(r2)); str = str.replace(abbr, ''); }
+        }
+        const parts = str.split(/[、，,\s]+/).filter(p => p.trim());
+        for (const p of parts) {
+          if (REGION_ALIAS[p]) REGION_ALIAS[p].forEach(r2 => regions.add(r2));
+          else if (p.length > 0) regions.add(p);
+        }
+        if (regions.size > 0) planRegion = regions;
+      }
+    }
+
+    audience.push({ material: mat, gNum, placement, ta, note, genderRatio, ageRange, planRegion, desc });
+  }
+  return audience;
+}
+
+// ============================================================
+// CAMPAIGN NAME PARSER
+// ============================================================
+function parseCampaignName(name) {
+  const parts = name.split('_');
+  const dateIdx = parts.findIndex(p => /^\d{4}-\d{4}$/.test(p));
+  if (dateIdx === -1) return null;
+
+  const objective = OBJ_MAP[parts[2]] || parts[2];
+  const dateStr = parts[dateIdx];
+  const [sMMDD, eMMDD] = dateStr.split('-');
+  const startDate = new Date(CFG.year, parseInt(sMMDD.slice(0,2))-1, parseInt(sMMDD.slice(2)));
+  const endDate   = new Date(CFG.year, parseInt(eMMDD.slice(0,2))-1, parseInt(eMMDD.slice(2)));
+
+  const afterObj = parts.slice(dateIdx + 2);
+
+  // 性別：搜尋所有 part（不限最後一個）
+  const gender = afterObj.find(p => p === 'M' || p === 'F') || null;
+
+  // 預算：支援 $X,XXX 和 $X,XXX($Y,YYY) 兩種格式
+  const budgetRe = /^\$[\d,]+(\(\$?[\d,]+\))?$/;
+  let campBudget = null;
+  for (const p of afterObj) {
+    if (budgetRe.test(p)) {
+      const bm = p.match(/\$([\d,]+)/);
+      if (bm) { campBudget = parseInt(bm[1].replace(/,/g,'')); break; }
+    }
+  }
+
+  const nonMeta = afterObj.filter(p => p !== 'M' && p !== 'F' && !budgetRe.test(p));
+  // VIP：任一 part 含有 vip 即為 VIP 活動
+  const hasVip = nonMeta.some(p => /\bvip\b/i.test(p));
+  // G號：從完整 nonMeta 字串搜尋（支援 G3、G3 : Album、Group-3 等）
+  const gNum = extractGNum(nonMeta.join(' '));
+  let ta = '-';
+  let matParts = [...nonMeta];
+  if (matParts.length > 0 && KNOWN_TA.has(matParts[matParts.length - 1])) {
+    ta = matParts[matParts.length - 1];
+    matParts = matParts.slice(0, -1);
+  }
+
+  return { name, objective, startDate, endDate, dateStr, material: matParts.join('_'), ta, gender, campBudget, hasVip, gNum };
+}
+
+// ============================================================
+// MATCHING
+// ============================================================
+function norm(s) { return (s || '').replace(/[_\s\n\r]/g, '').toLowerCase(); }
+function normNote(s) { return (s || '').replace(/\s*\(.*?\)/g, '').trim(); }
+function noteHasVip(s) { return /\bvip\b/i.test(s || ''); }
+
+function fuzzyMatMatch(nm, nc) {
+  if (!nm || !nc) return false;
+  if (nm === nc || nm.includes(nc) || nc.includes(nm)) return true;
+  const sh = nm.length < nc.length ? nm : nc;
+  const lo = nm.length >= nc.length ? nm : nc;
+  return sh.length > 3 && lo.includes(sh.slice(0, Math.ceil(sh.length * 0.6)));
+}
+
+function findMatchingCampaigns(planRow, campaigns) {
+  const planVip = noteHasVip(planRow.note) || /\bvip\b/i.test(planRow.material || '');
+  const planGNum = planRow.gNum; // e.g. 'G1', null
+  const nm = norm(planRow.material);
+  const results = [];
+
+  for (const c of campaigns) {
+    // 1. Objective match (ignore parenthetical like VIP)
+    if (normNote(c.objective) !== normNote(planRow.note)) continue;
+    // 2. VIP must match both sides
+    if (planVip !== c.hasVip) continue;
+    // 3. TA check
+    if (planRow.ta !== '-' && c.ta !== planRow.ta) continue;
+
+    const campGNum = c.gNum;
+
+    if (planGNum && campGNum) {
+      // G 號相符即匹配，不再做額外素材比對
+      if (planGNum !== campGNum) continue;
+      results.push(c);
+    } else {
+      // No G-number on one/both sides → fall back to material fuzzy match
+      const nc = norm(c.material);
+      if (fuzzyMatMatch(nm, nc)) results.push(c);
+    }
+  }
+  return results;
+}
+
+function findAudienceRow(planRow, audience) {
+  const planGNum = planRow.gNum;
+  const nm = norm(planRow.material);
+  const planFirstSeg = (planRow.material || '').split('_')[0].trim();
+
+  let best = null, bestScore = -1;
+
+  for (const a of audience) {
+    let s = 0;
+    // G 號優先：兩邊都有 G 號且相同 → 最高分
+    if (planGNum && a.gNum) {
+      if (planGNum === a.gNum) s = 100;
+      else continue; // G 號不同，跳過
+    } else {
+      // 沒有 G 號 → 素材文字模糊比對
+      const na = norm(a.material);
+      const audFirstSeg = (a.material || '').split('_')[0].trim();
+      if (!na) s = 5;
+      else if (na === nm) s = 90;
+      else if (na.includes(nm) || nm.includes(na)) s = 70;
+      else if (planFirstSeg.length > 2 && audFirstSeg === planFirstSeg) s = 55;
+      const sh = na.length < nm.length ? na : nm;
+      const lo = na.length >= nm.length ? na : nm;
+      if (s === 0 && sh.length > 3 && lo.includes(sh.slice(0, Math.ceil(sh.length * 0.6)))) s = 40;
+    }
+    if (s > bestScore) { bestScore = s; best = a; }
+  }
+
+  return bestScore >= 5 ? best : null;
+}
+
+// ============================================================
+// PROGRESS CALC
+// ============================================================
+function calcProgress(planRow, startDate, endDate, genderRatio, gender) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const yesterday = new Date(today); yesterday.setDate(today.getDate()-1);
+
+  let lower = 0, upper = 0, todayAmt = 0;
+  const hasDailyData = Object.keys(planRow.daily).length > 0;
+
+  for (const [dk, amt] of Object.entries(planRow.daily)) {
+    const [dy, dm, dd] = dk.split('-').map(Number);
+    const d = new Date(dy, dm - 1, dd); // 本地時間，避免 UTC 偏移
+    let dayAmt = amt;
+    if (gender && genderRatio) dayAmt = amt * (gender === 'F' ? genderRatio.female : genderRatio.male);
+    if (d >= startDate && d <= yesterday) lower += dayAmt;
+    if (d >= startDate && d <= today) upper += dayAmt;
+    if (dk === dateKey(today)) todayAmt = dayAmt;
+  }
+
+  let planTotal = planRow.totalBudget;
+  if (gender && genderRatio) planTotal = planRow.totalBudget * (gender === 'F' ? genderRatio.female : genderRatio.male);
+
+  // 若計畫表沒有日期資料（無法解析月份），退回用總預算判斷
+  // 活動已結束 → 預期花完，lower=upper=total
+  // 活動進行中 → 無法判斷進度，lower=upper=0（顯示進度但不判顏色）
+  if (!hasDailyData && endDate) {
+    if (endDate < today) {
+      lower = planTotal;
+      upper = planTotal;
+    }
+  }
+
+  return { lower, upper, todayAmt, total: planTotal };
+}
+
+// ============================================================
+// META DATA LOADING
+// ============================================================
+async function loadMetaData() {
+  const filter = JSON.stringify([{ field: 'campaign.name', operator: 'CONTAIN', value: CFG.campaignPrefix }]);
+  const base = { level: 'campaign', fields: 'campaign_name,spend', date_preset: 'maximum', filtering: filter };
+
+  const [spendData, genderData, ageData, regionData] = await Promise.all([
+    metaFetchAll(`act_${CFG.adAccount}/insights`, base),
+    metaFetchAll(`act_${CFG.adAccount}/insights`, { ...base, breakdowns: 'gender' }),
+    metaFetchAll(`act_${CFG.adAccount}/insights`, { ...base, breakdowns: 'age' }),
+    metaFetchAll(`act_${CFG.adAccount}/insights`, { ...base, breakdowns: 'region' }),
+  ]);
+
+  const spendMap = {};
+  for (const r of spendData)
+    spendMap[r.campaign_name] = (spendMap[r.campaign_name] || 0) + parseFloat(r.spend || 0);
+
+  const genderMap = {};
+  for (const r of genderData) {
+    if (!genderMap[r.campaign_name]) genderMap[r.campaign_name] = { male:0, female:0, unknown:0 };
+    const s = parseFloat(r.spend || 0);
+    const g = (r.gender || '').toLowerCase();
+    if (g === 'male') genderMap[r.campaign_name].male += s;
+    else if (g === 'female') genderMap[r.campaign_name].female += s;
+    else genderMap[r.campaign_name].unknown += s;
+  }
+
+  const ageMap = {};
+  for (const r of ageData) {
+    if (!ageMap[r.campaign_name]) ageMap[r.campaign_name] = {};
+    ageMap[r.campaign_name][r.age] = (ageMap[r.campaign_name][r.age] || 0) + parseFloat(r.spend || 0);
+  }
+
+  const regionMap = {};
+  for (const r of regionData) {
+    if (!regionMap[r.campaign_name]) regionMap[r.campaign_name] = {};
+    const regName = REGION_EN_ZH[r.region] || r.region;
+    regionMap[r.campaign_name][regName] = (regionMap[r.campaign_name][regName] || 0) + parseFloat(r.spend || 0);
+  }
+
+  return { spendMap, genderMap, ageMap, regionMap };
+}
+
+// ============================================================
+// FORMAT HELPERS
+// ============================================================
+const fmt = n => n === 0 ? '$0' : '$' + Math.round(n).toLocaleString('zh-TW');
+const pct = n => (n * 100).toFixed(1) + '%';
+const fmtDate = d => `${d.getMonth()+1}/${d.getDate()}`;
+
+function datesMatch(campDate, planDate) {
+  if (!campDate || !planDate) return true;
+  // 比對年月日，不要求時間完全一致
+  return campDate.getFullYear() === planDate.getFullYear()
+    && campDate.getMonth() === planDate.getMonth()
+    && campDate.getDate() === planDate.getDate();
+}
+
+function progressBar(actual, lower, upper, total, started) {
+  if (!started) return `<div class="prog-wrap"><div class="prog-bg"><div class="prog-fill pending" style="width:0%"></div></div><div class="prog-label">未開始</div></div>`;
+  const pctFill = total > 0 ? Math.min(actual / total, 1.2) : 0;
+  const inRange = actual >= lower - 100 && actual <= upper + 100;
+  const over = actual > upper + 100;
+  const cls = inRange ? 'ok' : (over ? 'over' : 'warn');
+  return `<div class="prog-wrap"><div class="prog-bg"><div class="prog-fill ${cls}" style="width:${Math.min(pctFill*100,100).toFixed(1)}%"></div></div><div class="prog-label">${pct(pctFill)}</div></div>`;
+}
+
+// ============================================================
+// AGE / GENDER / CELL HELPERS
+// ============================================================
+function calcAgeOutOfRange(campaignNames, ageMap, ageRange) {
+  if (!ageRange) return { outSpend: 0, totalSpend: 0 };
+  let outSpend = 0, totalSpend = 0;
+  for (const name of campaignNames) {
+    for (const [slot, spend] of Object.entries(ageMap[name] || {})) {
+      totalSpend += spend;
+      const sMin = AGE_MIN[slot], sMax = AGE_MAX[slot];
+      if (sMin !== undefined && sMax !== undefined && (sMax < ageRange.min || sMin > ageRange.max)) outSpend += spend;
+    }
+  }
+  return { outSpend, totalSpend };
+}
+
+function ageStatusIcon(ageOk, hasRange) {
+  if (!hasRange) return '<span class="badge-na">—</span>';
+  return ageOk ? `<span class="badge-ok">✅</span>` : `<span class="red-x">✕</span>`;
+}
+
+function genderStatusCell(gData, expectedGender) {
+  if (!gData) return { check: '<span class="badge-na">—</span>', status: '<span class="badge-na">—</span>' };
+  const total = gData.male + gData.female + gData.unknown;
+  if (total === 0) return { check: '<span class="badge-na">—</span>', status: '<span class="badge-na">—</span>' };
+  const malePct = gData.male / total, femalePct = gData.female / total;
+  const leakage = expectedGender === 'F' ? malePct : (expectedGender === 'M' ? femalePct : 0);
+  if (leakage < 0.01) return { check: `<span class="badge-ok">✅ 正常</span>`, status: '<span class="num-muted">—</span>' };
+  return {
+    check: `<span class="red-x">✕ 異常</span>`,
+    status: `<span class="num-err">男 ${pct(malePct)} 女 ${pct(femalePct)}</span>`
+  };
+}
+
+function campNameCell(camp) {
+  if (!camp) return `<span class="badge-notfound">❌ 未找到</span>`;
+  const prefix = CFG.campaignPrefix + '_FBP_';
+  const short = camp.name.startsWith(prefix) ? '…' + camp.name.slice(prefix.length + 4) : camp.name;
+  return `<span class="camp-name" title="${camp.name}" data-copy="${camp.name}">${short}</span>`;
+}
+
+// ============================================================
+// RENDER MAIN TABLE
+// ============================================================
+function renderMainTable(planRows, campaigns, metaData, audience) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const rows = [];
+  const matchedCampNames = new Set();
+  let okCount = 0, warnCount = 0, pendingCount = 0, notFoundCount = 0;
+
+  for (const planRow of planRows) {
+    const matchedCamps = findMatchingCampaigns(planRow, campaigns);
+    matchedCamps.forEach(c => matchedCampNames.add(c.name));
+
+    const audRow = findAudienceRow(planRow, audience);
+    const genderRatio = audRow?.genderRatio || null;
+    const ageRange = audRow?.ageRange || null;
+
+    const mCamp = matchedCamps.find(c => c.gender === 'M');
+    const fCamp = matchedCamps.find(c => c.gender === 'F');
+    const noGenderCamps = matchedCamps.filter(c => !c.gender);
+
+    const matLabel = planRow.material || '—';
+    const taLabel = planRow.ta !== '-' ? `<span class="ta-chip">${planRow.ta}</span>` : '';
+    const planRange = getPlanDateRange(planRow);
+
+    if (mCamp || fCamp) {
+      const gRatio = genderRatio || { male: 0.3, female: 0.7 };
+      const fStartDate = fCamp?.startDate || mCamp?.startDate;
+      const fEndDate = fCamp?.endDate || mCamp?.endDate;
+      const mStartDate = mCamp?.startDate || fCamp?.startDate;
+      const mEndDate = mCamp?.endDate || fCamp?.endDate;
+
+      const fProg = fStartDate ? calcProgress(planRow, fStartDate, fEndDate, gRatio, 'F') : null;
+      const mProg = mStartDate ? calcProgress(planRow, mStartDate, mEndDate, gRatio, 'M') : null;
+      const fActual = metaData.spendMap[fCamp?.name] || 0;
+      const mActual = metaData.spendMap[mCamp?.name] || 0;
+      const fStarted = fStartDate && today >= fStartDate;
+      const mStarted = mStartDate && today >= mStartDate;
+
+      const fGC = genderStatusCell(metaData.genderMap[fCamp?.name], 'F');
+      const mGC = genderStatusCell(metaData.genderMap[mCamp?.name], 'M');
+
+      const ageCampNames = [fCamp?.name, mCamp?.name].filter(Boolean);
+      const { outSpend: ageOut } = calcAgeOutOfRange(ageCampNames, metaData.ageMap, ageRange);
+      const ageOk = ageOut < (fActual + mActual) * 0.02;
+
+      const walkStart = fStartDate || mStartDate;
+      const walkEnd = fEndDate || mEndDate;
+      const dateOk = planRange && walkStart && walkEnd
+        ? datesMatch(walkStart, planRange.start) && datesMatch(walkEnd, planRange.end) : true;
+      const fBOk = !fCamp?.campBudget || Math.abs(fCamp.campBudget - planRow.totalBudget) <= planRow.totalBudget * 0.01;
+      const mBOk = !mCamp?.campBudget || Math.abs(mCamp.campBudget - planRow.totalBudget) <= planRow.totalBudget * 0.01;
+
+      const ageRangeText = ageRange ? `<span class="age-range-text">${ageRange.min}-${ageRange.max}</span>` : '<span class="badge-na">—</span>';
+      const ageOutLabel = `<span class="${ageOut > 0 ? 'num-err':'num-muted'}">${fmt(ageOut)}</span>`;
+
+      if (fStarted) { (fActual >= (fProg?.lower||0)-100 && fActual <= (fProg?.upper||0)+100) ? okCount++ : warnCount++; }
+      else pendingCount++;
+      if (mStarted) { (mActual >= (mProg?.lower||0)-100 && mActual <= (mProg?.upper||0)+100) ? okCount++ : warnCount++; }
+
+      rows.push(`<tr class="mf-first-row row-hover">
+        <td rowspan="2"><div class="material-cell">${matLabel}</div>${taLabel}</td>
+        <td rowspan="2">${planRow.note}</td>
+        <td rowspan="2" ${!dateOk?'class="text-red"':''}>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
+        <td rowspan="2" class="num${!fBOk||!mBOk?' text-red':''}">${fmt(planRow.totalBudget)}</td>
+        <td class="gender-cell"><span class="gender-chip f">女 ${Math.round(gRatio.female*10)}</span></td>
+        <td>${campNameCell(fCamp)}</td>
+        <td class="num col-sep">${fProg?fmt(fProg.todayAmt):'—'}</td>
+        <td class="num">${fProg?fmt(fProg.lower):'—'}</td>
+        <td class="num">${fProg?fmt(fProg.upper):'—'}</td>
+        <td class="num ${fActual>0?'num-ok':''}">${fmt(fActual)}</td>
+        <td>${fProg?progressBar(fActual,fProg.lower,fProg.upper,fProg.total,fStarted):'—'}</td>
+        <td class="col-sep">${fGC.check}</td>
+        <td>${fGC.status}</td>
+        <td class="col-sep" rowspan="2">${ageRangeText}</td>
+        <td rowspan="2">${ageOutLabel}</td>
+        <td rowspan="2">${ageStatusIcon(ageOk,!!ageRange)}</td>
+      </tr>`);
+      rows.push(`<tr class="mf-second-row row-hover">
+        <td class="gender-cell"><span class="gender-chip m">男 ${Math.round(gRatio.male*10)}</span></td>
+        <td>${campNameCell(mCamp)}</td>
+        <td class="num col-sep">${mProg?fmt(mProg.todayAmt):'—'}</td>
+        <td class="num">${mProg?fmt(mProg.lower):'—'}</td>
+        <td class="num">${mProg?fmt(mProg.upper):'—'}</td>
+        <td class="num ${mActual>0?'num-ok':''}">${fmt(mActual)}</td>
+        <td>${mProg?progressBar(mActual,mProg.lower,mProg.upper,mProg.total,mStarted):'—'}</td>
+        <td class="col-sep">${mGC.check}</td>
+        <td>${mGC.status}</td>
+      </tr>`);
+
+    } else if (noGenderCamps.length > 0) {
+      for (const camp of noGenderCamps) {
+        const prog = calcProgress(planRow, camp.startDate, camp.endDate, null, null);
+        const actual = metaData.spendMap[camp.name] || 0;
+        const started = today >= camp.startDate;
+        const dateOk = planRange ? datesMatch(camp.startDate, planRange.start) && datesMatch(camp.endDate, planRange.end) : true;
+        const bOk = !camp.campBudget || Math.abs(camp.campBudget - planRow.totalBudget) <= planRow.totalBudget * 0.01;
+        const { outSpend: ageOut } = calcAgeOutOfRange([camp.name], metaData.ageMap, ageRange);
+        const ageOk = ageOut < actual * 0.02;
+        const ageRangeText = ageRange ? `<span class="age-range-text">${ageRange.min}-${ageRange.max}</span>` : '<span class="badge-na">—</span>';
+
+        if (started) { (actual >= prog.lower-100 && actual <= prog.upper+100) ? okCount++ : warnCount++; }
+        else pendingCount++;
+
+        rows.push(`<tr class="row-hover">
+          <td><div class="material-cell">${matLabel}</div>${taLabel}</td>
+          <td>${planRow.note}</td>
+          <td ${!dateOk?'class="text-red"':''}>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
+          <td class="num${!bOk?' text-red':''}">${fmt(prog.total)}</td>
+          <td><span class="badge-na">全</span></td>
+          <td>${campNameCell(camp)}</td>
+          <td class="num col-sep">${started?fmt(prog.todayAmt):'<span class="num-muted">—</span>'}</td>
+          <td class="num">${fmt(prog.lower)}</td>
+          <td class="num">${fmt(prog.upper)}</td>
+          <td class="num ${actual>0?'num-ok':''}">${fmt(actual)}</td>
+          <td>${progressBar(actual,prog.lower,prog.upper,prog.total,started)}</td>
+          <td class="col-sep"><span class="badge-na">—</span></td>
+          <td><span class="badge-na">—</span></td>
+          <td class="col-sep">${ageRangeText}</td>
+          <td><span class="${ageOut>0?'num-err':'num-muted'}">${fmt(ageOut)}</span></td>
+          <td>${ageStatusIcon(ageOk,!!ageRange)}</td>
+        </tr>`);
+      }
+    } else {
+      notFoundCount++;
+      const ageRangeText = ageRange ? `<span class="age-range-text">${ageRange.min}-${ageRange.max}</span>` : '<span class="badge-na">—</span>';
+      rows.push(`<tr class="row-hover">
+        <td><div class="material-cell">${matLabel}</div>${taLabel}</td>
+        <td>${planRow.note}</td>
+        <td>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
+        <td class="num">${fmt(planRow.totalBudget)}</td>
+        <td><span class="badge-na">—</span></td>
+        <td><span class="badge-notfound">❌ 未找到</span></td>
+        <td class="num col-sep num-muted">—</td>
+        <td class="num num-muted">—</td>
+        <td class="num num-muted">—</td>
+        <td class="num num-muted">$0</td>
+        <td>—</td>
+        <td class="col-sep"><span class="badge-na">—</span></td>
+        <td><span class="badge-na">—</span></td>
+        <td class="col-sep">${ageRangeText}</td>
+        <td><span class="num-muted">—</span></td>
+        <td><span class="badge-na">—</span></td>
+      </tr>`);
+    }
+  }
+
+  document.getElementById('main-tbody').innerHTML = rows.join('') || '<tr><td colspan="16" class="no-data">無資料</td></tr>';
+  document.getElementById('main-badge').textContent = `✅ ${okCount} 正常 / 🔴 ${warnCount} 異常 / 🔵 ${pendingCount} 未開始 / ❌ ${notFoundCount} 未對應`;
+
+  const unmatched = campaigns.filter(c => !matchedCampNames.has(c.name));
+  const unmatchedSection = document.getElementById('unmatched-section');
+  if (unmatched.length > 0) {
+    unmatchedSection.style.display = 'block';
+    document.getElementById('unmatched-badge').textContent = `${unmatched.length} 筆`;
+    const uRows = unmatched.map(c => `<tr>
+      <td><span class="camp-name" title="${c.name}" data-copy="${c.name}" style="max-width:300px">${c.name}</span></td>
+      <td>${c.objective}</td>
+      <td>${fmtDate(c.startDate)}~${fmtDate(c.endDate)}</td>
+      <td class="num">${fmt(metaData.spendMap[c.name] || 0)}</td>
+    </tr>`);
+    document.getElementById('unmatched-tbody').innerHTML = uRows.join('');
+  } else {
+    unmatchedSection.style.display = 'none';
+  }
+}
+
+// ============================================================
+// RENDER REGION TABLE
+// ============================================================
+function calcRegionRow(regionData, planRegion, isFullTaiwan) {
+  const totalSpend = Object.values(regionData).reduce((s,v)=>s+v, 0);
+
+  if (isFullTaiwan) {
+    if (totalSpend === 0) return { tags: '<span class="num-muted" style="font-size:11px">尚無資料</span>', outPctStr: '—', hasWarn: false, badge: '<span class="badge-na">—</span>' };
+    let foreignSpend = 0;
+    const foreignTags = [], twTags = [];
+    for (const [reg, spend] of Object.entries(regionData).sort((a,b)=>b[1]-a[1]).slice(0,12)) {
+      const isTW = TAIWAN_REGIONS.has(reg);
+      const isUnknown = reg.toLowerCase().startsWith('unknown') || reg === '';
+      if (!isTW && !isUnknown) foreignSpend += spend;
+      const tagClass = isUnknown ? 'neutral' : (isTW ? 'in' : 'out');
+      (isTW || isUnknown ? twTags : foreignTags).push(`<span class="region-tag ${tagClass}" title="${fmt(spend)}">${reg} ${pct(spend/totalSpend)}</span>`);
+    }
+    const hasWarn = foreignSpend > 0;
+    const tags = [...foreignTags, ...twTags].join('') || '<span style="color:#2e7d32;font-size:11px">✓ 僅台灣地區</span>';
+    return { tags, outPctStr: hasWarn ? pct(foreignSpend/totalSpend) : '0%', hasWarn, badge: hasWarn ? `<span class="badge-err">❌ 異常</span>` : `<span class="badge-ok">✅ 正常</span>` };
+  }
+
+  if (totalSpend === 0) return { tags: '<span class="num-muted" style="font-size:11px">尚無資料</span>', outPctStr: '—', hasWarn: false, badge: '<span class="badge-na">—</span>' };
+
+  const sorted = Object.entries(regionData).sort((a,b)=>b[1]-a[1]);
+  let outSpend = 0;
+  const tags = sorted.slice(0,12).map(([reg, spend]) => {
+    const isUnknown = reg.toLowerCase().startsWith('unknown') || reg === '';
+    const inPlan = isUnknown || [...planRegion].some(pr => reg.includes(pr) || pr.includes(reg));
+    if (!inPlan) outSpend += spend;
+    return `<span class="region-tag ${isUnknown ? 'neutral' : (inPlan?'in':'out')}" title="${fmt(spend)}">${reg} ${pct(spend/totalSpend)}</span>`;
+  }).join('');
+  sorted.slice(12).forEach(([reg, spend]) => {
+    const isUnknown = reg.toLowerCase().startsWith('unknown') || reg === '';
+    const inPlan = isUnknown || [...planRegion].some(pr => reg.includes(pr) || pr.includes(reg));
+    if (!inPlan) outSpend += spend;
+  });
+  const outPct = outSpend / totalSpend;
+  const hasWarn = outPct > 0.05;
+  return { tags, outPctStr: pct(outPct), hasWarn, badge: hasWarn ? `<span class="badge-err">❌ 異常</span>` : `<span class="badge-ok">✅ 正常</span>` };
+}
+
+function renderRegionTable(planRows, campaigns, regionMap, audience) {
+  const rows = [];
+  let okCount = 0, warnCount = 0;
+
+  for (const planRow of planRows) {
+    const audRow = findAudienceRow(planRow, audience);
+    const planRegion = audRow?.planRegion || null;
+    const isFullTaiwan = !planRegion;
+    const planRegionStr = planRegion ? [...planRegion].join('、') : '全台';
+
+    const matchedCamps = findMatchingCampaigns(planRow, campaigns);
+    const mCamp = matchedCamps.find(c => c.gender === 'M');
+    const fCamp = matchedCamps.find(c => c.gender === 'F');
+    const noGenderCamps = matchedCamps.filter(c => !c.gender);
+
+    const matLabel = planRow.material || '—';
+    const taLabel = planRow.ta !== '-' ? `<span class="ta-chip">${planRow.ta}</span>` : '';
+    const gRatio = audRow?.genderRatio || { male: 0.3, female: 0.7 };
+
+    if (mCamp || fCamp) {
+      const fRow = calcRegionRow(fCamp ? (regionMap[fCamp.name]||{}) : {}, planRegion||new Set(), isFullTaiwan);
+      const mRow = calcRegionRow(mCamp ? (regionMap[mCamp.name]||{}) : {}, planRegion||new Set(), isFullTaiwan);
+      if (fRow.hasWarn || mRow.hasWarn) warnCount++; else okCount++;
+
+      rows.push(`<tr class="mf-first-row row-hover">
+        <td rowspan="2"><div class="material-cell">${matLabel}</div>${taLabel}</td>
+        <td rowspan="2">${planRow.note}</td>
+        <td class="gender-cell"><span class="gender-chip f">女 ${Math.round(gRatio.female*10)}</span></td>
+        <td rowspan="2" style="color:#555;font-size:12px">${planRegionStr}</td>
+        <td><div class="region-list">${fRow.tags}</div></td>
+        <td class="num ${fRow.hasWarn?'num-err':'num-ok'}">${fRow.outPctStr}</td>
+        <td>${fRow.badge}</td>
+      </tr>`);
+      rows.push(`<tr class="mf-second-row row-hover">
+        <td class="gender-cell"><span class="gender-chip m">男 ${Math.round(gRatio.male*10)}</span></td>
+        <td><div class="region-list">${mRow.tags}</div></td>
+        <td class="num ${mRow.hasWarn?'num-err':'num-ok'}">${mRow.outPctStr}</td>
+        <td>${mRow.badge}</td>
+      </tr>`);
+
+    } else if (noGenderCamps.length > 0) {
+      const aggRegion = {};
+      for (const camp of noGenderCamps)
+        for (const [reg, spend] of Object.entries(regionMap[camp.name]||{}))
+          aggRegion[reg] = (aggRegion[reg]||0) + spend;
+      const row = calcRegionRow(aggRegion, planRegion||new Set(), isFullTaiwan);
+      if (row.hasWarn) warnCount++; else okCount++;
+
+      rows.push(`<tr class="row-hover">
+        <td><div class="material-cell">${matLabel}</div>${taLabel}</td>
+        <td>${planRow.note}</td>
+        <td><span class="badge-na">全</span></td>
+        <td style="color:#555;font-size:12px">${planRegionStr}</td>
+        <td><div class="region-list">${row.tags}</div></td>
+        <td class="num ${row.hasWarn?'num-err':'num-ok'}">${row.outPctStr}</td>
+        <td>${row.badge}</td>
+      </tr>`);
+
+    } else {
+      rows.push(`<tr class="row-hover">
+        <td><div class="material-cell">${matLabel}</div>${taLabel}</td>
+        <td>${planRow.note}</td>
+        <td><span class="badge-na">—</span></td>
+        <td style="color:#555;font-size:12px">${planRegionStr}</td>
+        <td><span class="badge-na">—</span></td>
+        <td class="num-muted">—</td>
+        <td><span class="badge-notfound">❌ 未對應</span></td>
+      </tr>`);
+    }
+  }
+
+  document.getElementById('region-tbody').innerHTML = rows.join('') || '<tr><td colspan="7" class="no-data">無地區資料</td></tr>';
+  document.getElementById('region-badge').textContent = `✅ ${okCount} 正常 / 🔴 ${warnCount} 異常`;
+}
+
+// ============================================================
+// MAIN LOAD
+// ============================================================
+async function loadDashboard() {
+  setStatus('dot-meta', 'loading', '載入資料中...');
+  setStatus('dot-sheet', 'loading');
+  document.getElementById('main-tbody').innerHTML = '<tr class="loading-row"><td colspan="16"><span class="spinner"></span>載入中...</td></tr>';
+  document.getElementById('region-tbody').innerHTML = '<tr class="loading-row"><td colspan="7"><span class="spinner"></span>載入中...</td></tr>';
+  document.getElementById('unmatched-section').style.display = 'none';
+
+  const w = waves[activeWaveIdx];
+  if (w) document.getElementById('main-section-title').textContent = `📊 廣告活動監控總覽 — ${w.name} ${w.prefix}`;
+
+  try {
+    const [metaResult, sheetResult] = await Promise.allSettled([
+      loadMetaData(),
+      fetchSheets(),
+    ]);
+
+    if (metaResult.status === 'rejected') throw new Error('Meta API 失敗：' + metaResult.reason.message);
+    const metaData = metaResult.value;
+    setStatus('dot-meta', 'ok');
+
+    let sheet1Rows = [], sheet2Rows = [];
+    if (sheetResult.status === 'fulfilled') {
+      [sheet1Rows, sheet2Rows] = sheetResult.value;
+      setStatus('dot-sheet', 'ok', '載入完成');
+    } else {
+      setStatus('dot-sheet', 'err', 'Sheets 載入失敗：請確認試算表已公開');
+    }
+
+    const colDate = buildDateColMap(sheet1Rows);
+    const planRows = buildPlanRows(sheet1Rows, colDate);
+    const audience = parseAudienceSheet(sheet2Rows);
+
+    const campaigns = Object.keys(metaData.spendMap)
+      .filter(n => n.includes(CFG.campaignPrefix))
+      .map(n => parseCampaignName(n))
+      .filter(Boolean);
+
+    renderMainTable(planRows, campaigns, metaData, audience);
+    renderRegionTable(planRows, campaigns, metaData.regionMap, audience);
+
+    document.getElementById('last-update').textContent = '更新：' + new Date().toLocaleTimeString('zh-TW');
+  } catch (e) {
+    setStatus('dot-meta', 'err', '載入失敗：' + e.message);
+    const errRow = `<tr><td colspan="16" style="text-align:center;color:#c00;padding:20px">❌ ${e.message}</td></tr>`;
+    document.getElementById('main-tbody').innerHTML = errRow;
+    document.getElementById('region-tbody').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#c00;padding:20px">❌ ${e.message}</td></tr>`;
+  }
+}
+
+// Init
+renderWaveButtons();
+if (getToken()) { document.getElementById('token-overlay').style.display = 'none'; loadDashboard(); }
+</script>
+</body>
+</html>
