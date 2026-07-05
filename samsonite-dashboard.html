@@ -226,6 +226,7 @@ body.at {
 .summary-cards {
   display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;
 }
+.summary-cards.seven { grid-template-columns: repeat(7, 1fr); }
 .card {
   background: #fff; border-radius: 12px; padding: 16px 18px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.07);
@@ -309,25 +310,23 @@ tr:hover td { background: #fafafa; }
   <div class="brand-list">
     <div class="brand-btn active" data-brand="samsonite" onclick="switchBrand(this)">
       <div class="brand-dot"></div>
-      <div class="brand-name">
-        Samsonite
-        <small>Marketing</small>
-      </div>
+      <div class="brand-name">Samsonite</div>
     </div>
     <div class="brand-btn" data-brand="american_tourister" onclick="switchBrand(this)">
       <div class="brand-dot"></div>
-      <div class="brand-name">
-        American Tourister
-        <small>Marketing</small>
-      </div>
+      <div class="brand-name">American Tourister</div>
     </div>
   </div>
 
   <div class="sidebar-section">目標</div>
   <div class="sidebar-nav">
-    <div class="nav-item active">
+    <div class="nav-item active" data-obj="branding" onclick="switchObjective(this,'branding')">
       <div class="nav-dot"></div>
       Branding
+    </div>
+    <div class="nav-item" data-obj="ec" onclick="switchObjective(this,'ec')">
+      <div class="nav-dot"></div>
+      EC
     </div>
   </div>
 
@@ -376,10 +375,15 @@ tr:hover td { background: #fafafa; }
       <div class="chart-section">
         <div class="chart-header">
           <div class="chart-title">每日趨勢</div>
-          <div class="metric-toggle">
+          <div class="metric-toggle" id="brandingModes">
             <button class="metric-btn active" onclick="switchMode(this,'overall')">整體</button>
             <button class="metric-btn" onclick="switchMode(this,'awareness')">曝光</button>
             <button class="metric-btn" onclick="switchMode(this,'traffic')">導流</button>
+          </div>
+          <div class="metric-toggle" id="ecModes" style="display:none">
+            <button class="metric-btn active" onclick="switchMode(this,'ec_overall')">整體</button>
+            <button class="metric-btn" onclick="switchMode(this,'ec_performance')">流量</button>
+            <button class="metric-btn" onclick="switchMode(this,'ec_roas')">購買</button>
           </div>
         </div>
         <div class="chart-wrapper"><canvas id="dailyChart"></canvas></div>
@@ -423,30 +427,40 @@ tr:hover td { background: #fafafa; }
 const ACCESS_TOKEN = 'EAAOgjBZCa97gBRsau23cuaiGPGILbMg4jfK3CByOLay0lmIl2eHL2k2VkmeqJymNwIQZAcfoIqO9HvONrB4LNQwTrIWo0bqCv9ILZBOTaWXS5ZB5Qa3KZAg8YF1dVfyPufTVQQCoRacXFNjaTI658v4WOOTf7Up3oon1KMwZBOOeX9LVpYsDZAqcw1ic2X6';
 const GRAPH_URL = 'https://graph.facebook.com/v21.0';
 const ACCOUNT_IDS = {
-  samsonite: 'act_1318174565548910',
-  american_tourister: 'act_1530988521034172',
+  samsonite:           { branding: 'act_1318174565548910',  ec: 'act_599620824954716'  },
+  american_tourister:  { branding: 'act_1530988521034172',  ec: 'act_484946893063783'  },
 };
-const FIELDS = 'spend,impressions,cpm,inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click';
-let currentBrand = 'samsonite';
+const BRANDING_FIELDS = 'spend,impressions,cpm,inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click';
+const EC_FIELDS       = 'spend,inline_link_clicks,cost_per_inline_link_click,actions,action_values';
+let currentBrand     = 'samsonite';
+let currentObjective = 'branding';
 let dailyChart = null;
 let activeMode = 'overall';
-let dailyData = [];
+let dailyData  = [];
 
 // Brand colour palettes
 const PALETTE = {
   samsonite: {
-    spend:                      '#1a1a1a',   // 黑 - 花費
-    impressions:                '#c8a96e',   // 金 - 曝光
-    inline_link_clicks:         '#8a6e3e',   // 深金 - 連結點擊
-    cpm:                        '#c8a96e',   // 金線 - CPM
-    cost_per_inline_link_click: '#8a6e3e',   // 深金線 - CPC
+    spend:                      '#1a1a1a',
+    impressions:                '#c8a96e',
+    inline_link_clicks:         '#8a6e3e',
+    cpm:                        '#c8a96e',
+    cost_per_inline_link_click: '#8a6e3e',
+    purchase_count:             '#8a6e3e',
+    purchase_value:             '#c8a96e',
+    cpa:                        '#8a6e3e',
+    roas:                       '#c8a96e',
   },
   american_tourister: {
-    spend:                      '#3aab3a',   // 綠 - 花費
-    impressions:                '#f5d800',   // 黃 - 曝光
-    inline_link_clicks:         '#1d7a1d',   // 深綠 - 連結點擊
-    cpm:                        '#f5d800',   // 黃線 - CPM
-    cost_per_inline_link_click: '#1d7a1d',   // 深綠線 - CPC
+    spend:                      '#3aab3a',
+    impressions:                '#f5d800',
+    inline_link_clicks:         '#1d7a1d',
+    cpm:                        '#f5d800',
+    cost_per_inline_link_click: '#1d7a1d',
+    purchase_count:             '#1d7a1d',
+    purchase_value:             '#f5d800',
+    cpa:                        '#1d7a1d',
+    roas:                       '#f5d800',
   },
 };
 
@@ -468,6 +482,30 @@ const MODES = {
       { key:'spend',                      label:'花費',     axis:'y',  type:'bar' },
       { key:'inline_link_clicks',         label:'連結點擊', axis:'y1', type:'bar' },
       { key:'cost_per_inline_link_click', label:'CPC(link)',axis:'y2', type:'line' },
+    ]
+  },
+};
+
+const EC_MODES = {
+  ec_overall: {
+    datasets: [
+      { key:'spend',          label:'花費',     axis:'y',  type:'bar' },
+      { key:'purchase_value', label:'購買價值', axis:'y1', type:'bar' },
+      { key:'roas',           label:'ROAS',     axis:'y2', type:'line' },
+    ]
+  },
+  ec_performance: {
+    datasets: [
+      { key:'spend',                      label:'花費',     axis:'y',  type:'bar' },
+      { key:'inline_link_clicks',         label:'連結點擊', axis:'y1', type:'bar' },
+      { key:'cost_per_inline_link_click', label:'CPC(link)',axis:'y2', type:'line' },
+    ]
+  },
+  ec_roas: {
+    datasets: [
+      { key:'spend',          label:'花費',     axis:'y',  type:'bar' },
+      { key:'purchase_count', label:'購買數量', axis:'y1', type:'bar' },
+      { key:'cpa',            label:'CPA',      axis:'y2', type:'line' },
     ]
   },
 };
@@ -526,18 +564,42 @@ function switchBrand(el) {
 
 // ── Format ──────────────────────────────────────────────
 const fmt = {
-  spend: v=>`$${Number(v||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0})}`,
-  impressions: v=>Number(v||0).toLocaleString('en'),
-  cpm: v=>`$${Number(v||0).toFixed(2)}`,
-  inline_link_clicks: v=>Number(v||0).toLocaleString('en'),
-  inline_link_click_ctr: v=>`${Number(v||0).toFixed(2)}%`,
+  spend:                      v=>`$${Number(v||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0})}`,
+  impressions:                v=>Number(v||0).toLocaleString('en'),
+  cpm:                        v=>`$${Number(v||0).toFixed(2)}`,
+  inline_link_clicks:         v=>Number(v||0).toLocaleString('en'),
+  inline_link_click_ctr:      v=>`${Number(v||0).toFixed(2)}%`,
   cost_per_inline_link_click: v=>`$${Number(v||0).toFixed(2)}`,
+  purchase_count:             v=>Number(v||0).toLocaleString('en'),
+  purchase_value:             v=>`$${Number(v||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0})}`,
+  cpa:                        v=>`$${Number(v||0).toFixed(0)}`,
+  roas:                       v=>`${Number(v||0).toFixed(2)}x`,
 };
 const labels = {
   spend:'花費', impressions:'曝光', cpm:'CPM',
   inline_link_clicks:'連結點擊', inline_link_click_ctr:'CTR(link)',
-  cost_per_inline_link_click:'CPC(link)'
+  cost_per_inline_link_click:'CPC(link)',
+  purchase_count:'購買數量', purchase_value:'購買價值', cpa:'CPA', roas:'ROAS',
 };
+
+// ── EC helpers ───────────────────────────────────────────
+function getActionValue(arr, type) {
+  const found = (arr||[]).find(a=>a.action_type===type);
+  return found ? Number(found.value||0) : 0;
+}
+function processEcRow(r) {
+  const pc = getActionValue(r.actions, 'purchase');
+  const pv = getActionValue(r.action_values, 'purchase');
+  const sp = Number(r.spend||0);
+  return {
+    ...r,
+    purchase_count: pc,
+    purchase_value: pv,
+    cpa:  pc>0 ? sp/pc : 0,
+    roas: sp>0 ? pv/sp : 0,
+  };
+}
+function processEcData(data) { return data.map(processEcRow); }
 
 function sum(arr,k){ return arr.reduce((a,r)=>a+Number(r[k]||0),0); }
 
@@ -545,9 +607,9 @@ function sum(arr,k){ return arr.reduce((a,r)=>a+Number(r[k]||0),0); }
 async function fetchInsights(level) {
   const since = document.getElementById('dateSince').value;
   const until = document.getElementById('dateUntil').value;
-  const accountId = ACCOUNT_IDS[currentBrand];
+  const accountId = ACCOUNT_IDS[currentBrand][currentObjective];
 
-  let fields = FIELDS;
+  let fields = currentObjective === 'ec' ? EC_FIELDS : BRANDING_FIELDS;
   if (level === 'campaign') fields += ',campaign_name,campaign_id';
   if (level === 'adset')    fields += ',adset_name,adset_id,campaign_name';
 
@@ -581,16 +643,39 @@ function renderCards(data) {
     inline_link_click_ctr: imp>0?(lc/imp)*100:0,
     cost_per_inline_link_click: lc>0?sp/lc:0,
   };
-  document.getElementById('summaryCards').innerHTML = [
-    {k:'spend',label:'花費'},
-    {k:'impressions',label:'曝光'},
-    {k:'cpm',label:'CPM'},
-    {k:'inline_link_clicks',label:'連結點擊'},
-    {k:'inline_link_click_ctr',label:'CTR(link)'},
-    {k:'cost_per_inline_link_click',label:'CPC(link)'},
-  ].map(({k,label})=>`
+  const el = document.getElementById('summaryCards');
+  el.className = 'summary-cards';
+  el.innerHTML = [
+    {k:'spend'},{k:'impressions'},{k:'cpm'},
+    {k:'inline_link_clicks'},{k:'inline_link_click_ctr'},{k:'cost_per_inline_link_click'},
+  ].map(({k})=>`
     <div class="card">
-      <div class="card-label">${label}</div>
+      <div class="card-label">${labels[k]}</div>
+      <div class="card-value">${fmt[k](totals[k])}</div>
+    </div>
+  `).join('');
+}
+
+function renderEcCards(data) {
+  const sp  = sum(data,'spend'), lc = sum(data,'inline_link_clicks');
+  const pc  = sum(data,'purchase_count'), pv = sum(data,'purchase_value');
+  const totals = {
+    spend: sp,
+    inline_link_clicks: lc,
+    cost_per_inline_link_click: lc>0?sp/lc:0,
+    purchase_count: pc,
+    purchase_value: pv,
+    cpa:  pc>0?sp/pc:0,
+    roas: sp>0?pv/sp:0,
+  };
+  const el = document.getElementById('summaryCards');
+  el.className = 'summary-cards seven';
+  el.innerHTML = [
+    'spend','inline_link_clicks','cost_per_inline_link_click',
+    'purchase_count','purchase_value','cpa','roas'
+  ].map(k=>`
+    <div class="card">
+      <div class="card-label">${labels[k]}</div>
       <div class="card-value">${fmt[k](totals[k])}</div>
     </div>
   `).join('');
@@ -606,11 +691,12 @@ function renderChart(data) {
   drawChart();
 }
 
-const MONEY_KEYS = new Set(['spend','cpm','cost_per_inline_link_click']);
+const MONEY_KEYS = new Set(['spend','cpm','cost_per_inline_link_click','purchase_value','cpa']);
 const PCT_KEYS   = new Set(['inline_link_click_ctr']);
 
 function axisFormatter(key) {
   return v => {
+    if (key === 'roas') return Number(v).toFixed(2) + 'x';
     if (MONEY_KEYS.has(key)) return '$' + Number(v).toLocaleString();
     if (PCT_KEYS.has(key))   return Number(v).toFixed(2) + '%';
     return Number(v).toLocaleString();
@@ -622,7 +708,8 @@ function drawChart() {
   if (dailyChart) dailyChart.destroy();
 
   const brandColor = getChartColor();
-  const modeDefs = MODES[activeMode].datasets;
+  const modeMap  = currentObjective === 'ec' ? EC_MODES : MODES;
+  const modeDefs = (modeMap[activeMode] || Object.values(modeMap)[0]).datasets;
   const isMulti  = modeDefs.length > 1;
   const pr = dailyData.length > 60 ? 0 : 4;
 
@@ -664,7 +751,8 @@ function drawChart() {
           callbacks: {
             label: ctx => {
               const def = modeDefs[ctx.datasetIndex];
-              return `${def.label}: ${fmt[def.key](ctx.parsed.y)}`;
+              const f = fmt[def.key] || (v=>`${Number(v).toLocaleString()}`);
+              return `${def.label}: ${f(ctx.parsed.y)}`;
             }
           }
         }
@@ -706,6 +794,32 @@ function switchMode(el, mode) {
   drawChart();
 }
 
+function switchObjective(el, obj) {
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  el.classList.add('active');
+  currentObjective = obj;
+
+  // 切換圖表模式按鈕組
+  const isEc = obj === 'ec';
+  document.getElementById('brandingModes').style.display = isEc ? 'none' : '';
+  document.getElementById('ecModes').style.display       = isEc ? '' : 'none';
+
+  // 重置 activeMode
+  activeMode = isEc ? 'ec_overall' : 'overall';
+
+  // 更新 objectiveBadge
+  document.getElementById('objectiveBadge').textContent = isEc ? 'EC' : 'BRANDING';
+
+  // 重置圖表模式按鈕 active 狀態
+  document.querySelectorAll('#brandingModes .metric-btn, #ecModes .metric-btn').forEach(b=>b.classList.remove('active'));
+  const firstBtn = isEc
+    ? document.querySelector('#ecModes .metric-btn')
+    : document.querySelector('#brandingModes .metric-btn');
+  if(firstBtn) firstBtn.classList.add('active');
+
+  loadAll();
+}
+
 // ── Tables ───────────────────────────────────────────────
 function computeTotals(data) {
   const sp=sum(data,'spend'), imp=sum(data,'impressions'), lc=sum(data,'inline_link_clicks');
@@ -717,13 +831,22 @@ function computeTotals(data) {
   };
 }
 
-const COL_LABEL = {
-  spend: '花費', impressions: '曝光', cpm: 'CPM',
-  inline_link_clicks: '連結點擊', inline_link_click_ctr: 'CTR(link)',
-  cost_per_inline_link_click: 'CPC(link)',
-};
+function computeEcTotals(data) {
+  const sp=sum(data,'spend'), lc=sum(data,'inline_link_clicks');
+  const pc=sum(data,'purchase_count'), pv=sum(data,'purchase_value');
+  return {
+    spend:sp, inline_link_clicks:lc,
+    cost_per_inline_link_click: lc>0?sp/lc:0,
+    purchase_count:pc, purchase_value:pv,
+    cpa:  pc>0?sp/pc:0,
+    roas: sp>0?pv/sp:0,
+  };
+}
 
-const ALL_COLS = ['spend','impressions','cpm','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click'];
+const COL_LABEL = labels; // reuse labels object
+
+const ALL_COLS    = ['spend','impressions','cpm','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click'];
+const EC_ALL_COLS = ['spend','inline_link_clicks','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
 
 function buildRow(firstCell, r, cols) {
   return `<tr>
@@ -747,38 +870,43 @@ function buildTable(rows, totals, firstCol, cols) {
 }
 
 function renderDailyTable(data) {
+  const isEc = currentObjective === 'ec';
+  const cols  = isEc ? EC_ALL_COLS : ALL_COLS;
+  const totals = isEc ? computeEcTotals(data) : computeTotals(data);
   const sorted = [...data].sort((a,b)=>b.date_start.localeCompare(a.date_start));
-  const totals = computeTotals(data);
-  const rows = sorted.map(r=>buildRow(r.date_start, r, ALL_COLS)).join('');
-  document.getElementById('dailyTable').innerHTML = buildTable(rows, totals, '日期', ALL_COLS);
+  const rows = sorted.map(r=>buildRow(r.date_start, r, cols)).join('');
+  document.getElementById('dailyTable').innerHTML = buildTable(rows, totals, '日期', cols);
+}
+
+function _groupBy(data, idKey, nameKey, computeFn) {
+  const map = {};
+  data.forEach(r=>{
+    const k=r[idKey]||r[nameKey]||'Unknown';
+    if(!map[k]) map[k]={ name:r[nameKey]||k, rows:[] };
+    map[k].rows.push(r);
+  });
+  return Object.values(map).map(g=>{ const t=computeFn(g.rows); return {name:g.name,...t}; })
+    .sort((a,b)=>b.spend-a.spend);
 }
 
 function renderCampaignTable(data) {
-  const map = {};
-  data.forEach(r=>{
-    const k=r.campaign_id||r.campaign_name||'Unknown';
-    if(!map[k]) map[k]={ name:r.campaign_name||k, rows:[] };
-    map[k].rows.push(r);
-  });
-  const groups = Object.values(map).map(g=>{ const t=computeTotals(g.rows); return {name:g.name,...t}; })
-    .sort((a,b)=>b.spend-a.spend);
-  const totals = computeTotals(groups);
-  const rows = groups.map(g=>buildRow(g.name,g,ALL_COLS)).join('');
-  document.getElementById('campaignTable').innerHTML = buildTable(rows,totals,'活動名稱',ALL_COLS);
+  const isEc   = currentObjective === 'ec';
+  const cols   = isEc ? EC_ALL_COLS : ALL_COLS;
+  const compFn = isEc ? computeEcTotals : computeTotals;
+  const groups = _groupBy(data,'campaign_id','campaign_name',compFn);
+  const totals = compFn(groups);
+  const rows   = groups.map(g=>buildRow(g.name,g,cols)).join('');
+  document.getElementById('campaignTable').innerHTML = buildTable(rows,totals,'活動名稱',cols);
 }
 
 function renderAdsetTable(data) {
-  const map = {};
-  data.forEach(r=>{
-    const k=r.adset_id||r.adset_name||'Unknown';
-    if(!map[k]) map[k]={ name:r.adset_name||k, rows:[] };
-    map[k].rows.push(r);
-  });
-  const groups = Object.values(map).map(g=>{ const t=computeTotals(g.rows); return {name:g.name,...t}; })
-    .sort((a,b)=>b.spend-a.spend);
-  const totals = computeTotals(groups);
-  const rows = groups.map(g=>buildRow(g.name,g,ALL_COLS)).join('');
-  document.getElementById('adsetTable').innerHTML = buildTable(rows,totals,'受眾名稱',ALL_COLS);
+  const isEc   = currentObjective === 'ec';
+  const cols   = isEc ? EC_ALL_COLS : ALL_COLS;
+  const compFn = isEc ? computeEcTotals : computeTotals;
+  const groups = _groupBy(data,'adset_id','adset_name',compFn);
+  const totals = compFn(groups);
+  const rows   = groups.map(g=>buildRow(g.name,g,cols)).join('');
+  document.getElementById('adsetTable').innerHTML = buildTable(rows,totals,'受眾名稱',cols);
 }
 
 // ── Load ─────────────────────────────────────────────────
@@ -799,11 +927,14 @@ async function loadAll() {
       fetchInsights('adset'),
     ]);
     if(daily.error){ showError('dailyTable',daily.error.message); return; }
-    renderCards(daily);
-    renderChart(daily);
-    renderDailyTable(daily);
-    if(!campaign.error) { window._campaignData = campaign; renderCampaignTable(campaign); } else showError('campaignTable',campaign.error.message);
-    if(!adset.error)    { window._adsetData = adset;       renderAdsetTable(adset); }    else showError('adsetTable',adset.error.message);
+    const processedDaily = currentObjective === 'ec' ? processEcData(daily) : daily;
+    if(currentObjective === 'ec') renderEcCards(processedDaily); else renderCards(processedDaily);
+    renderChart(processedDaily);
+    renderDailyTable(processedDaily);
+    const procCampaign = currentObjective==='ec' && !campaign.error ? processEcData(campaign) : campaign;
+    const procAdset    = currentObjective==='ec' && !adset.error    ? processEcData(adset)    : adset;
+    if(!campaign.error) { window._campaignData = procCampaign; renderCampaignTable(procCampaign); } else showError('campaignTable',campaign.error.message);
+    if(!adset.error)    { window._adsetData = procAdset;       renderAdsetTable(procAdset); }    else showError('adsetTable',adset.error.message);
   } catch(e) {
     ['dailyTable','campaignTable','adsetTable'].forEach(id=>
       document.getElementById(id).innerHTML='<div class="error-msg">⚠️ 無法連線後端，請確認 server.py 已啟動（port 5001）</div>'
