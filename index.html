@@ -209,6 +209,24 @@ body.at {
 }
 .apply-btn:hover { opacity: 0.85; }
 
+/* ── Platform switcher ───────────────────────────────── */
+.platform-switcher {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 28px 0;
+}
+.platform-btn {
+  padding: 6px 18px; border-radius: 20px;
+  border: 1.5px solid #ddd; background: #fff;
+  font-size: 13px; font-weight: 600; cursor: pointer; color: #666;
+  transition: all 0.15s;
+}
+.platform-btn:hover { border-color: #aaa; color: #333; }
+.platform-btn.active {
+  background: var(--brand-primary); border-color: var(--brand-primary);
+  color: #fff;
+}
+.platform-btn.google.active { background: #4285f4; border-color: #4285f4; color: #fff; }
+
 /* ── Content ─────────────────────────────────────────── */
 .content { padding: 24px 28px; flex: 1; }
 .section-gap { margin-bottom: 28px; }
@@ -227,6 +245,7 @@ body.at {
   display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;
 }
 .summary-cards.seven { grid-template-columns: repeat(7, 1fr); }
+.summary-cards.nine  { grid-template-columns: repeat(9, 1fr); }
 .card {
   background: #fff; border-radius: 12px; padding: 16px 18px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.07);
@@ -262,6 +281,20 @@ body.at {
   color: #fff; border-color: var(--brand-primary);
 }
 .chart-wrapper { position: relative; height: 260px; }
+#pieChartArea {
+  display: none; height: 260px;
+  align-items: center; justify-content: center; gap: 24px;
+}
+#pieChartArea .pie-block {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 200px;
+}
+#pieChartArea .pie-title { font-size: 12px; font-weight: 700; color: #666; }
+#pieChartArea canvas { max-height: 200px; }
+
+/* Media channel table */
+.media-channel-table table { font-size: 13px; }
+.media-channel-table .channel-meta td:first-child { color: #1877f2; font-weight: 700; }
+.media-channel-table .channel-google td:first-child { color: #4285f4; font-weight: 700; }
 
 /* ── Tables ──────────────────────────────────────────── */
 .table-section {
@@ -359,12 +392,19 @@ tr:hover td { background: #fafafa; }
     </div>
   </div>
 
+  <!-- Platform switcher (EC only) -->
+  <div class="platform-switcher" id="platformSwitcher" style="display:none">
+    <button class="platform-btn" onclick="switchPlatform(this,'all')">整體</button>
+    <button class="platform-btn active" onclick="switchPlatform(this,'meta')">META</button>
+    <button class="platform-btn google" onclick="switchPlatform(this,'google')">Google</button>
+  </div>
+
   <!-- Content -->
   <div class="content">
 
     <!-- Summary cards -->
     <div class="section-gap">
-      <div class="section-label"><span class="platform-badge" style="font-size:11px;padding:3px 8px;border-radius:5px">f META</span> 帳戶整體表現</div>
+      <div class="section-label"><span id="platformBadge" class="platform-badge" style="font-size:11px;padding:3px 8px;border-radius:5px">f META</span> 帳戶整體表現</div>
       <div class="summary-cards" id="summaryCards">
         <div class="loading" style="grid-column:1/-1"><div class="spinner"></div> 載入中...</div>
       </div>
@@ -382,11 +422,26 @@ tr:hover td { background: #fafafa; }
           </div>
           <div class="metric-toggle" id="ecModes" style="display:none">
             <button class="metric-btn active" onclick="switchMode(this,'ec_overall')">整體</button>
+            <button class="metric-btn ec-all-only" onclick="switchMode(this,'ec_media')" style="display:none">媒體</button>
             <button class="metric-btn" onclick="switchMode(this,'ec_performance')">流量</button>
             <button class="metric-btn" onclick="switchMode(this,'ec_roas')">購買</button>
+            <button class="metric-btn ec-all-only" onclick="switchMode(this,'ec_pie')" style="display:none">媒體佔比</button>
           </div>
         </div>
-        <div class="chart-wrapper"><canvas id="dailyChart"></canvas></div>
+        <div class="chart-wrapper">
+          <canvas id="dailyChart"></canvas>
+          <div id="pieChartArea"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Media channel table (EC only) -->
+    <div class="section-gap" id="mediaChannelSection" style="display:none">
+      <div class="section-label">媒體渠道表現</div>
+      <div class="table-section media-channel-table">
+        <div class="table-inner" id="mediaChannelTable">
+          <div class="loading"><div class="spinner"></div> 載入中...</div>
+        </div>
       </div>
     </div>
 
@@ -411,10 +466,20 @@ tr:hover td { background: #fafafa; }
     </div>
 
     <!-- Ad Set -->
-    <div class="section-gap">
+    <div class="section-gap" id="adsetSection">
       <div class="section-label">受眾（Ad Set）拆分</div>
       <div class="table-section">
         <div class="table-inner" id="adsetTable">
+          <div class="loading"><div class="spinner"></div> 載入中...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ad / 素材 -->
+    <div class="section-gap" id="adSection">
+      <div class="section-label">素材（Ad）拆分</div>
+      <div class="table-section">
+        <div class="table-inner" id="adTable">
           <div class="loading"><div class="spinner"></div> 載入中...</div>
         </div>
       </div>
@@ -434,9 +499,20 @@ const BRANDING_FIELDS = 'spend,impressions,cpm,inline_link_clicks,inline_link_cl
 const EC_FIELDS       = 'spend,inline_link_clicks,cost_per_inline_link_click,actions,action_values';
 let currentBrand     = 'samsonite';
 let currentObjective = 'branding';
+let currentPlatform  = 'meta'; // 'meta' | 'google' | 'all'
 let dailyChart = null;
+let pieCharts  = [];
 let activeMode = 'overall';
 let dailyData  = [];
+let _metaDailyData   = [];
+let _googleDailyData = [];
+
+const GOOGLE_SHEET_ID = '1wHXCF9g2mpfVWhzfPr1CslDLwYvvmjiXK8nmN2PM8Rs';
+const GOOGLE_CLIENT_NAMES = {
+  samsonite: 'Samsonite',
+  american_tourister: 'American Tourister',
+};
+const GOOGLE_COLS = ['spend','inline_link_clicks','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
 
 // Brand colour palettes
 const PALETTE = {
@@ -494,6 +570,7 @@ const EC_MODES = {
       { key:'roas',           label:'ROAS',     axis:'y2', type:'line' },
     ]
   },
+  ec_media:   { special: 'media' },
   ec_performance: {
     datasets: [
       { key:'spend',                      label:'花費',     axis:'y',  type:'bar' },
@@ -504,10 +581,11 @@ const EC_MODES = {
   ec_roas: {
     datasets: [
       { key:'spend',          label:'花費',     axis:'y',  type:'bar' },
-      { key:'purchase_count', label:'購買數量', axis:'y1', type:'bar' },
+      { key:'purchase_count', label:'購買數',   axis:'y1', type:'bar' },
       { key:'cpa',            label:'CPA',      axis:'y2', type:'line' },
     ]
   },
+  ec_pie: { special: 'pie' },
 };
 
 const BRAND_NAMES = {
@@ -574,12 +652,20 @@ const fmt = {
   purchase_value:             v=>`$${Number(v||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0})}`,
   cpa:                        v=>`$${Number(v||0).toFixed(0)}`,
   roas:                       v=>`${Number(v||0).toFixed(2)}x`,
+  add_to_cart:                v=>Number(v||0).toLocaleString('en'),
+  cpatc:                      v=>`$${Number(v||0).toFixed(2)}`,
+  // Google aliases (normalized to same keys)
+  cost:                       v=>`$${Number(v||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0})}`,
+  clicks:                     v=>Number(v||0).toLocaleString('en'),
+  conversions:                v=>Number(v||0).toLocaleString('en'),
+  conversions_value:          v=>`$${Number(v||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0})}`,
 };
 const labels = {
   spend:'花費', impressions:'曝光', cpm:'CPM',
   inline_link_clicks:'連結點擊', inline_link_click_ctr:'CTR(link)',
   cost_per_inline_link_click:'CPC(link)',
-  purchase_count:'購買數量', purchase_value:'購買價值', cpa:'CPA', roas:'ROAS',
+  purchase_count:'購買數', purchase_value:'購買價值', cpa:'CPA', roas:'ROAS',
+  add_to_cart:'購物車', cpatc:'CPATC',
 };
 
 // ── EC helpers ───────────────────────────────────────────
@@ -588,20 +674,143 @@ function getActionValue(arr, type) {
   return found ? Number(found.value||0) : 0;
 }
 function processEcRow(r) {
-  const pc = getActionValue(r.actions, 'purchase');
-  const pv = getActionValue(r.action_values, 'purchase');
-  const sp = Number(r.spend||0);
+  const pc  = getActionValue(r.actions, 'purchase');
+  const pv  = getActionValue(r.action_values, 'purchase');
+  const atc = getActionValue(r.actions, 'add_to_cart');
+  const sp  = Number(r.spend||0);
   return {
     ...r,
     purchase_count: pc,
     purchase_value: pv,
-    cpa:  pc>0 ? sp/pc : 0,
-    roas: sp>0 ? pv/sp : 0,
+    add_to_cart: atc,
+    cpa:   pc>0  ? sp/pc  : 0,
+    cpatc: atc>0 ? sp/atc : 0,
+    roas:  sp>0  ? pv/sp  : 0,
   };
 }
 function processEcData(data) { return data.map(processEcRow); }
 
 function sum(arr,k){ return arr.reduce((a,r)=>a+Number(r[k]||0),0); }
+
+// ── Google Sheets fetch ──────────────────────────────────
+function parseCSVLine(line) {
+  const result = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+    else { cur += c; }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+async function fetchGoogleData() {
+  const since = document.getElementById('dateSince').value;
+  const until = document.getElementById('dateUntil').value;
+  const clientName = GOOGLE_CLIENT_NAMES[currentBrand];
+
+  const url = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=csv&gid=0`;
+  const resp = await fetch(url, { redirect: 'follow' });
+  const text = await resp.text();
+
+  const lines = text.trim().split('\n');
+  const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g,''));
+
+  // Data is CUMULATIVE per hour: for each (date × campaign), keep the LAST snapshot only
+  // Key: "date|campaign_name" → latest row
+  const latestByKey = {};
+
+  for (let i = 1; i < lines.length; i++) {
+    const vals = parseCSVLine(lines[i]);
+    if (vals.length < headers.length) continue;
+    const row = {};
+    headers.forEach((h, idx) => row[h] = (vals[idx]||'').replace(/^"|"$/g,''));
+
+    if (row.client_name !== clientName) continue;
+    const date = (row.captured_at || '').split(' ')[0];
+    if (!date || date < since || date > until) continue;
+
+    const key = `${date}|${row.campaign_name||'Unknown'}`;
+    // Zero-pad single-digit hours so string comparison works: "9:15" → "09:15"
+    const ts = (row.captured_at || '').replace(/(\d{4}-\d{2}-\d{2}) (\d):/, '$1 0$2:');
+    if (!latestByKey[key] || ts > (latestByKey[key]._ts || '')) {
+      latestByKey[key] = { ...row, date_start: date, _ts: ts };
+    }
+  }
+
+  // Now aggregate from the latest snapshots
+  const byDate = {};
+  const byCampaign = {};
+
+  Object.values(latestByKey).forEach(row => {
+    const date  = row.date_start;
+    const cname = row.campaign_name || 'Unknown';
+    const cost  = Number(row.cost || 0);
+    const clks  = Number(row.clicks || 0);
+    const conv  = Number(row.conversions || 0);
+    const convV = Number(row.conversions_value || 0);
+
+    // daily sum across campaigns
+    if (!byDate[date]) byDate[date] = { date_start: date, spend: 0, inline_link_clicks: 0, purchase_count: 0, purchase_value: 0 };
+    byDate[date].spend              += cost;
+    byDate[date].inline_link_clicks += clks;
+    byDate[date].purchase_count     += conv;
+    byDate[date].purchase_value     += convV;
+
+    // campaign total
+    if (!byCampaign[cname]) byCampaign[cname] = { campaign_name: cname, spend: 0, inline_link_clicks: 0, purchase_count: 0, purchase_value: 0 };
+    byCampaign[cname].spend              += cost;
+    byCampaign[cname].inline_link_clicks += clks;
+    byCampaign[cname].purchase_count     += conv;
+    byCampaign[cname].purchase_value     += convV;
+  });
+
+  const finalize = r => {
+    const sp = r.spend, lc = r.inline_link_clicks, pc = r.purchase_count, pv = r.purchase_value;
+    return { ...r, add_to_cart: 0, cpatc: 0,
+      cost_per_inline_link_click: lc > 0 ? sp/lc : 0,
+      cpa: pc > 0 ? sp/pc : 0,
+      roas: sp > 0 ? pv/sp : 0 };
+  };
+
+  const daily = Object.values(byDate).sort((a,b)=>a.date_start.localeCompare(b.date_start)).map(finalize);
+  const campaigns = Object.values(byCampaign).sort((a,b)=>b.spend-a.spend).map(finalize).filter(r=>r.spend>=1);
+  return { daily, campaigns };
+}
+
+function renderGoogleCards(data) {
+  // Google platform: reuse renderEcCards with google-normalized data
+  renderEcCards(data);
+}
+
+function renderGoogleCampaignTable(campaigns) {
+  const cols = GOOGLE_COLS;
+  const compFn = rows => {
+    const sp=sum(rows,'spend'), lc=sum(rows,'inline_link_clicks'), pc=sum(rows,'purchase_count'), pv=sum(rows,'purchase_value');
+    return { spend:sp, inline_link_clicks:lc, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, add_to_cart:0, cpatc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
+  };
+  const totals = compFn(campaigns);
+  const rows = campaigns.map(g => buildRow(g.campaign_name, g, cols)).join('');
+  document.getElementById('campaignTable').innerHTML = buildTable(rows, totals, '活動名稱', cols);
+}
+
+// Merge meta+google daily arrays by date
+function mergeDaily(metaArr, googleArr) {
+  const map = {};
+  [...metaArr, ...googleArr].forEach(r => {
+    const d = r.date_start;
+    if (!map[d]) map[d] = { date_start: d, spend:0, inline_link_clicks:0, purchase_count:0, purchase_value:0 };
+    map[d].spend              += Number(r.spend||0);
+    map[d].inline_link_clicks += Number(r.inline_link_clicks||0);
+    map[d].purchase_count     += Number(r.purchase_count||0);
+    map[d].purchase_value     += Number(r.purchase_value||0);
+  });
+  return Object.values(map).sort((a,b)=>a.date_start.localeCompare(b.date_start)).map(r => {
+    const sp=r.spend, lc=r.inline_link_clicks, pc=r.purchase_count, pv=r.purchase_value;
+    return { ...r, cost_per_inline_link_click:lc>0?sp/lc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0, add_to_cart:0, cpatc:0 };
+  });
+}
 
 // ── Fetch ────────────────────────────────────────────────
 async function fetchInsights(level) {
@@ -612,12 +821,13 @@ async function fetchInsights(level) {
   let fields = currentObjective === 'ec' ? EC_FIELDS : BRANDING_FIELDS;
   if (level === 'campaign') fields += ',campaign_name,campaign_id';
   if (level === 'adset')    fields += ',adset_name,adset_id,campaign_name';
+  if (level === 'ad')       fields += ',ad_name,ad_id,adset_name,campaign_name';
 
   const params = new URLSearchParams({
     access_token: ACCESS_TOKEN,
     fields,
     time_range: JSON.stringify({ since, until }),
-    time_increment: 1,
+    ...(level === 'account' ? { time_increment: 1 } : {}),
     level,
     limit: 500,
   });
@@ -657,23 +867,21 @@ function renderCards(data) {
 }
 
 function renderEcCards(data) {
-  const sp  = sum(data,'spend'), lc = sum(data,'inline_link_clicks');
-  const pc  = sum(data,'purchase_count'), pv = sum(data,'purchase_value');
+  const sp = sum(data,'spend'), lc = sum(data,'inline_link_clicks');
+  const pc = sum(data,'purchase_count'), pv = sum(data,'purchase_value');
+  const atc = sum(data,'add_to_cart');
   const totals = {
-    spend: sp,
-    inline_link_clicks: lc,
+    spend: sp, inline_link_clicks: lc,
     cost_per_inline_link_click: lc>0?sp/lc:0,
-    purchase_count: pc,
-    purchase_value: pv,
-    cpa:  pc>0?sp/pc:0,
-    roas: sp>0?pv/sp:0,
+    add_to_cart: atc, cpatc: atc>0?sp/atc:0,
+    purchase_count: pc, purchase_value: pv,
+    cpa: pc>0?sp/pc:0, roas: sp>0?pv/sp:0,
   };
+  const cols = getEcCols();
   const el = document.getElementById('summaryCards');
-  el.className = 'summary-cards seven';
-  el.innerHTML = [
-    'spend','inline_link_clicks','cost_per_inline_link_click',
-    'purchase_count','purchase_value','cpa','roas'
-  ].map(k=>`
+  el.className = cols.length === 9 ? 'summary-cards nine' : 'summary-cards seven';
+  el.style.gridTemplateColumns = '';
+  el.innerHTML = cols.map(k=>`
     <div class="card">
       <div class="card-label">${labels[k]}</div>
       <div class="card-value">${fmt[k](totals[k])}</div>
@@ -691,6 +899,12 @@ function renderChart(data) {
   drawChart();
 }
 
+// Destroy all pie charts
+function destroyPieCharts() {
+  pieCharts.forEach(c => c.destroy());
+  pieCharts = [];
+}
+
 const MONEY_KEYS = new Set(['spend','cpm','cost_per_inline_link_click','purchase_value','cpa']);
 const PCT_KEYS   = new Set(['inline_link_click_ctr']);
 
@@ -704,87 +918,182 @@ function axisFormatter(key) {
 }
 
 function drawChart() {
-  const ctx = document.getElementById('dailyChart').getContext('2d');
-  if (dailyChart) dailyChart.destroy();
+  const canvas    = document.getElementById('dailyChart');
+  const pieArea   = document.getElementById('pieChartArea');
+  const modeMap   = currentObjective === 'ec' ? EC_MODES : MODES;
+  const modeConf  = modeMap[activeMode] || Object.values(modeMap)[0];
+
+  // ── 媒體佔比 pie mode ────────────────────────────────
+  if (modeConf.special === 'pie') {
+    if (dailyChart) { dailyChart.destroy(); dailyChart = null; }
+    canvas.style.display = 'none';
+    pieArea.style.display = 'flex';
+    destroyPieCharts();
+
+    const metaSp = _metaDailyData.reduce((a,r)=>a+Number(r.spend||0),0);
+    const gSp    = _googleDailyData.reduce((a,r)=>a+Number(r.spend||0),0);
+    const metaPv = _metaDailyData.reduce((a,r)=>a+Number(r.purchase_value||0),0);
+    const gPv    = _googleDailyData.reduce((a,r)=>a+Number(r.purchase_value||0),0);
+    const metaLc = _metaDailyData.reduce((a,r)=>a+Number(r.inline_link_clicks||0),0);
+    const gLc    = _googleDailyData.reduce((a,r)=>a+Number(r.inline_link_clicks||0),0);
+
+    const metaColor  = PALETTE[currentBrand].spend;
+    const googleColor = '#4285f4';
+
+    const pieDefs = [
+      { title:'花費佔比',   meta: metaSp, google: gSp },
+      { title:'購買價值佔比', meta: metaPv, google: gPv },
+      { title:'流量佔比',   meta: metaLc, google: gLc },
+    ];
+
+    pieArea.innerHTML = pieDefs.map((_,i)=>`
+      <div class="pie-block">
+        <div class="pie-title">${pieDefs[i].title}</div>
+        <canvas id="pieChart${i}"></canvas>
+      </div>`).join('');
+
+    pieDefs.forEach((p, i) => {
+      const c = document.getElementById(`pieChart${i}`).getContext('2d');
+      pieCharts.push(new Chart(c, {
+        type: 'doughnut',
+        data: {
+          labels: ['META', 'Google'],
+          datasets: [{ data: [p.meta, p.google], backgroundColor: [metaColor+'cc', googleColor+'cc'], borderColor: [metaColor, googleColor], borderWidth: 2 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: true,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
+            tooltip: { callbacks: { label: ctx => {
+              const total = ctx.dataset.data.reduce((a,b)=>a+b,0);
+              const pct = total>0 ? ((ctx.parsed/total)*100).toFixed(1)+'%' : '0%';
+              return `${ctx.label}: ${pct}`;
+            }}}
+          }
+        }
+      }));
+    });
+    return;
+  }
+
+  // ── 媒體 mode (meta vs google spend) ────────────────
+  if (modeConf.special === 'media') {
+    canvas.style.display = '';
+    pieArea.style.display = 'none';
+    destroyPieCharts();
+    if (dailyChart) { dailyChart.destroy(); dailyChart = null; }
+
+    // All dates from both sources
+    const allDates = [...new Set([..._metaDailyData, ..._googleDailyData].map(r=>r.date_start))].sort();
+    const metaMap  = Object.fromEntries(_metaDailyData.map(r=>[r.date_start,r]));
+    const gMap     = Object.fromEntries(_googleDailyData.map(r=>[r.date_start,r]));
+    const merged   = mergeDaily(_metaDailyData, _googleDailyData);
+    const mergedMap= Object.fromEntries(merged.map(r=>[r.date_start,r]));
+
+    const metaColor  = PALETTE[currentBrand].spend;
+    const googleColor = '#4285f4';
+    const roasColor  = currentBrand==='american_tourister'?'#f5d800':'#c8a96e';
+
+    dailyChart = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: { datasets: [
+        { type:'bar',  label:'META 花費',   data: allDates.map(d=>({x:d, y:Number((metaMap[d]||{}).spend||0)})),   backgroundColor: metaColor+'cc',   borderColor: metaColor,   borderWidth:0, borderRadius:4, yAxisID:'y',  order:1 },
+        { type:'bar',  label:'Google 花費', data: allDates.map(d=>({x:d, y:Number((gMap[d]||{}).spend||0)})),     backgroundColor: googleColor+'cc', borderColor: googleColor, borderWidth:0, borderRadius:4, yAxisID:'y',  order:1 },
+        { type:'line', label:'ROAS',        data: allDates.map(d=>({x:d, y:Number((mergedMap[d]||{}).roas||0)})),  borderColor: roasColor, backgroundColor:'transparent', tension:0.35, pointRadius:3, borderWidth:2.5, yAxisID:'y2', order:0 },
+      ]},
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        interaction: { mode:'index', intersect:false },
+        plugins: {
+          legend: { display:true, position:'top', labels:{boxWidth:12,font:{size:12}} },
+          tooltip: { callbacks: { label: ctx => {
+            if(ctx.datasetIndex<2) return `${ctx.dataset.label}: $${Number(ctx.parsed.y).toLocaleString()}`;
+            return `ROAS: ${Number(ctx.parsed.y).toFixed(2)}x`;
+          }}}
+        },
+        scales: {
+          x: { type:'time', time:{unit:'day',displayFormats:{day:'M/d'}}, grid:{display:false} },
+          y: { position:'left', grid:{color:'#f3f3f3'}, ticks:{callback:v=>'$'+Number(v).toLocaleString()} },
+          y2:{ position:'right', grid:{drawOnChartArea:false}, ticks:{callback:v=>Number(v).toFixed(2)+'x', color:roasColor}, border:{dash:[4,4]} },
+        }
+      }
+    });
+    return;
+  }
+
+  // ── Normal mode ──────────────────────────────────────
+  canvas.style.display = '';
+  pieArea.style.display = 'none';
+  destroyPieCharts();
+  if (dailyChart) { dailyChart.destroy(); dailyChart = null; }
 
   const brandColor = getChartColor();
-  const modeMap  = currentObjective === 'ec' ? EC_MODES : MODES;
-  const modeDefs = (modeMap[activeMode] || Object.values(modeMap)[0]).datasets;
-  const isMulti  = modeDefs.length > 1;
+  const modeDefs = modeConf.datasets;
   const pr = dailyData.length > 60 ? 0 : 4;
 
   const datasets = modeDefs.map((def, i) => {
     const color = PALETTE[currentBrand][def.key] || brandColor;
     const isBar = def.type === 'bar';
     return {
-      type: def.type,
-      label: def.label,
+      type: def.type, label: def.label,
       data: dailyData.map(r => ({ x: r.date_start, y: Number(r[def.key] || 0) })),
       borderColor: color,
-      backgroundColor: isBar ? color + 'cc' : (i === 0 ? color + '18' : 'transparent'),
-      fill: !isBar && i === 0,
-      tension: 0.35,
-      pointRadius: isBar ? 0 : pr,
-      pointHoverRadius: isBar ? 0 : 6,
-      borderWidth: isBar ? 0 : 2.5,
-      borderRadius: isBar ? 4 : 0,
-      yAxisID: def.axis,
-      order: isBar ? 1 : 0,
+      backgroundColor: isBar ? color + 'cc' : (i===0 ? color+'18':'transparent'),
+      fill: !isBar && i===0, tension:0.35,
+      pointRadius: isBar?0:pr, pointHoverRadius:isBar?0:6,
+      borderWidth: isBar?0:2.5, borderRadius:isBar?4:0,
+      yAxisID: def.axis, order: isBar?1:0,
     };
   });
 
-  const hasY1 = modeDefs.some(d => d.axis === 'y1');
-  const hasY2 = modeDefs.some(d => d.axis === 'y2');
-  const yKey  = modeDefs.find(d => d.axis === 'y')?.key  || 'spend';
-  const y1Key = modeDefs.find(d => d.axis === 'y1')?.key || '';
-  const y2Key = modeDefs.find(d => d.axis === 'y2')?.key || '';
+  const hasY1 = modeDefs.some(d=>d.axis==='y1');
+  const hasY2 = modeDefs.some(d=>d.axis==='y2');
+  const yKey  = modeDefs.find(d=>d.axis==='y')?.key  || 'spend';
+  const y1Key = modeDefs.find(d=>d.axis==='y1')?.key || '';
+  const y2Key = modeDefs.find(d=>d.axis==='y2')?.key || '';
 
-  dailyChart = new Chart(ctx, {
-    type: 'bar',
-    data: { datasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 12 } } },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const def = modeDefs[ctx.datasetIndex];
-              const f = fmt[def.key] || (v=>`${Number(v).toLocaleString()}`);
-              return `${def.label}: ${f(ctx.parsed.y)}`;
-            }
-          }
-        }
+  dailyChart = new Chart(canvas.getContext('2d'), {
+    type:'bar', data:{ datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:true,position:'top',labels:{boxWidth:12,font:{size:12}}},
+        tooltip:{callbacks:{label:ctx=>{
+          const def=modeDefs[ctx.datasetIndex];
+          const f=fmt[def.key]||(v=>`${Number(v).toLocaleString()}`);
+          return `${def.label}: ${f(ctx.parsed.y)}`;
+        }}}
       },
-      scales: {
-        x: { type: 'time', time: { unit: 'day', displayFormats: { day: 'M/d' } }, grid: { display: false } },
-        y: {
-          position: 'left',
-          grid: { color: '#f3f3f3' },
-          ticks: { callback: axisFormatter(yKey) }
-        },
-        ...(hasY1 ? {
-          y1: {
-            position: 'right',
-            grid: { drawOnChartArea: false },
-            ticks: { callback: axisFormatter(y1Key) }
-          }
-        } : {}),
-        ...(hasY2 ? {
-          y2: {
-            position: 'right',
-            grid: { drawOnChartArea: false },
-            ticks: {
-              callback: axisFormatter(y2Key),
-              color: PALETTE[currentBrand][y2Key] || '#999',
-            },
-            border: { dash: [4,4] },
-          }
-        } : {})
+      scales:{
+        x:{type:'time',time:{unit:'day',displayFormats:{day:'M/d'}},grid:{display:false}},
+        y:{position:'left',grid:{color:'#f3f3f3'},ticks:{callback:axisFormatter(yKey)}},
+        ...(hasY1?{y1:{position:'right',grid:{drawOnChartArea:false},ticks:{callback:axisFormatter(y1Key)}}}:{}),
+        ...(hasY2?{y2:{position:'right',grid:{drawOnChartArea:false},ticks:{callback:axisFormatter(y2Key),color:PALETTE[currentBrand][y2Key]||'#999'},border:{dash:[4,4]}}}:{})
       }
     }
   });
+}
+
+function renderMediaChannelTable() {
+  const cols = EC_ALL_COLS;
+  const metaTotals   = computeEcTotals(_metaDailyData);
+  const googleTotals = computeEcTotals(_googleDailyData);
+  const allTotals    = computeEcTotals([...(_metaDailyData), ...(_googleDailyData)].reduce((acc,r)=>{
+    // re-merge to compute proper derived metrics
+    return acc;
+  }, []));
+  // Simpler: recompute combined
+  const sp=metaTotals.spend+googleTotals.spend, lc=metaTotals.inline_link_clicks+googleTotals.inline_link_clicks;
+  const pc=metaTotals.purchase_count+googleTotals.purchase_count, pv=metaTotals.purchase_value+googleTotals.purchase_value;
+  const combined = { spend:sp, inline_link_clicks:lc, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
+
+  const header = `<tr><th style="text-align:left">渠道</th>${cols.map(k=>`<th>${labels[k]}</th>`).join('')}</tr>`;
+  const metaRow   = `<tr class="channel-meta"><td>META</td>${cols.map(k=>`<td>${fmt[k](metaTotals[k])}</td>`).join('')}</tr>`;
+  const googleRow = `<tr class="channel-google"><td>Google</td>${cols.map(k=>`<td>${fmt[k](googleTotals[k])}</td>`).join('')}</tr>`;
+  const totalRow  = `<tr class="total-row"><td>合計</td>${cols.map(k=>`<td>${fmt[k](combined[k])}</td>`).join('')}</tr>`;
+
+  document.getElementById('mediaChannelTable').innerHTML = `<table><thead>${header}</thead><tbody>${totalRow}${metaRow}${googleRow}</tbody></table>`;
 }
 
 function switchMode(el, mode) {
@@ -794,13 +1103,67 @@ function switchMode(el, mode) {
   drawChart();
 }
 
+function switchPlatform(el, platform) {
+  document.querySelectorAll('.platform-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  currentPlatform = platform;
+  updatePlatformBadge();
+  loadAll();
+}
+
+function updatePlatformBadge() {
+  const badge = document.getElementById('platformBadge');
+  if (!badge) return;
+  if (currentObjective !== 'ec') {
+    badge.style.background = '#1877f2';
+    badge.textContent = 'f META';
+    return;
+  }
+  if (currentPlatform === 'google') {
+    badge.style.background = '#4285f4';
+    badge.textContent = 'G Google';
+  } else if (currentPlatform === 'all') {
+    badge.style.background = '#555';
+    badge.textContent = '⊕ 整體';
+  } else {
+    badge.style.background = '#1877f2';
+    badge.textContent = 'f META';
+  }
+}
+
+function updateSectionVisibility() {
+  const isEc = currentObjective === 'ec';
+  const isAll = currentPlatform === 'all';
+
+  // adset / ad sections only for META
+  const showMeta = !isEc || currentPlatform === 'meta';
+  document.getElementById('adsetSection').style.display = showMeta ? '' : 'none';
+  document.getElementById('adSection').style.display    = showMeta ? '' : 'none';
+
+  // 媒體/媒體佔比 chart buttons + 媒體渠道表現 table only in EC 整體
+  document.querySelectorAll('.ec-all-only').forEach(b => b.style.display = (isEc && isAll) ? '' : 'none');
+  document.getElementById('mediaChannelSection').style.display = (isEc && isAll) ? '' : 'none';
+
+  // If switching away from 整體 while on a special mode, reset chart mode
+  if (!(isEc && isAll) && (activeMode === 'ec_media' || activeMode === 'ec_pie')) {
+    activeMode = 'ec_overall';
+    document.querySelectorAll('#ecModes .metric-btn').forEach(b => b.classList.remove('active'));
+    const firstBtn = document.querySelector('#ecModes .metric-btn');
+    if (firstBtn) firstBtn.classList.add('active');
+  }
+}
+
 function switchObjective(el, obj) {
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   el.classList.add('active');
   currentObjective = obj;
 
-  // 切換圖表模式按鈕組
+  // platform switcher
   const isEc = obj === 'ec';
+  document.getElementById('platformSwitcher').style.display = isEc ? '' : 'none';
+  if (!isEc) currentPlatform = 'meta';
+
+  // 切換圖表模式按鈕組
   document.getElementById('brandingModes').style.display = isEc ? 'none' : '';
   document.getElementById('ecModes').style.display       = isEc ? '' : 'none';
 
@@ -809,6 +1172,8 @@ function switchObjective(el, obj) {
 
   // 更新 objectiveBadge
   document.getElementById('objectiveBadge').textContent = isEc ? 'EC' : 'BRANDING';
+
+  updatePlatformBadge();
 
   // 重置圖表模式按鈕 active 狀態
   document.querySelectorAll('#brandingModes .metric-btn, #ecModes .metric-btn').forEach(b=>b.classList.remove('active'));
@@ -838,15 +1203,20 @@ function computeEcTotals(data) {
     spend:sp, inline_link_clicks:lc,
     cost_per_inline_link_click: lc>0?sp/lc:0,
     purchase_count:pc, purchase_value:pv,
-    cpa:  pc>0?sp/pc:0,
-    roas: sp>0?pv/sp:0,
+    cpa: pc>0?sp/pc:0, roas: sp>0?pv/sp:0,
+    add_to_cart:0, cpatc:0,
   };
 }
 
 const COL_LABEL = labels; // reuse labels object
 
 const ALL_COLS    = ['spend','impressions','cpm','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click'];
-const EC_ALL_COLS = ['spend','inline_link_clicks','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
+const EC_ALL_COLS      = ['spend','inline_link_clicks','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
+const META_EC_ALL_COLS = ['spend','inline_link_clicks','cost_per_inline_link_click','add_to_cart','cpatc','purchase_count','purchase_value','cpa','roas'];
+// Return correct EC cols based on current platform
+function getEcCols() {
+  return (currentObjective === 'ec' && currentPlatform === 'meta') ? META_EC_ALL_COLS : EC_ALL_COLS;
+}
 
 function buildRow(firstCell, r, cols) {
   return `<tr>
@@ -871,7 +1241,7 @@ function buildTable(rows, totals, firstCol, cols) {
 
 function renderDailyTable(data) {
   const isEc = currentObjective === 'ec';
-  const cols  = isEc ? EC_ALL_COLS : ALL_COLS;
+  const cols   = isEc ? getEcCols() : ALL_COLS;
   const totals = isEc ? computeEcTotals(data) : computeTotals(data);
   const sorted = [...data].sort((a,b)=>b.date_start.localeCompare(a.date_start));
   const rows = sorted.map(r=>buildRow(r.date_start, r, cols)).join('');
@@ -891,7 +1261,7 @@ function _groupBy(data, idKey, nameKey, computeFn) {
 
 function renderCampaignTable(data) {
   const isEc   = currentObjective === 'ec';
-  const cols   = isEc ? EC_ALL_COLS : ALL_COLS;
+  const cols   = isEc ? getEcCols() : ALL_COLS;
   const compFn = isEc ? computeEcTotals : computeTotals;
   const groups = _groupBy(data,'campaign_id','campaign_name',compFn);
   const totals = compFn(groups);
@@ -901,12 +1271,22 @@ function renderCampaignTable(data) {
 
 function renderAdsetTable(data) {
   const isEc   = currentObjective === 'ec';
-  const cols   = isEc ? EC_ALL_COLS : ALL_COLS;
+  const cols   = isEc ? getEcCols() : ALL_COLS;
   const compFn = isEc ? computeEcTotals : computeTotals;
-  const groups = _groupBy(data,'adset_id','adset_name',compFn);
+  const groups = _groupBy(data,'adset_name','adset_name',compFn);
   const totals = compFn(groups);
   const rows   = groups.map(g=>buildRow(g.name,g,cols)).join('');
   document.getElementById('adsetTable').innerHTML = buildTable(rows,totals,'受眾名稱',cols);
+}
+
+function renderAdTable(data) {
+  const isEc   = currentObjective === 'ec';
+  const cols   = isEc ? getEcCols() : ALL_COLS;
+  const compFn = isEc ? computeEcTotals : computeTotals;
+  const groups = _groupBy(data,'ad_name','ad_name',compFn);
+  const totals = compFn(groups);
+  const rows   = groups.map(g=>buildRow(g.name,g,cols)).join('');
+  document.getElementById('adTable').innerHTML = buildTable(rows,totals,'素材名稱',cols);
 }
 
 // ── Load ─────────────────────────────────────────────────
@@ -915,31 +1295,88 @@ function showLoading(id) {
 }
 
 async function loadAll() {
+  updatePlatformBadge();
+  updateSectionVisibility();
   showLoading('dailyTable');
   showLoading('campaignTable');
-  showLoading('adsetTable');
+  if (document.getElementById('mediaChannelSection').style.display !== 'none') {
+    showLoading('mediaChannelTable');
+  }
+  document.getElementById('summaryCards').style.gridTemplateColumns = '';
   document.getElementById('summaryCards').innerHTML='<div class="loading" style="grid-column:1/-1"><div class="spinner"></div> 載入中...</div>';
 
+  const isEc = currentObjective === 'ec';
+  const showAdTables = !isEc || currentPlatform === 'meta';
+  if (showAdTables) { showLoading('adsetTable'); showLoading('adTable'); }
+
   try {
-    const [daily, campaign, adset] = await Promise.all([
-      fetchInsights('account'),
-      fetchInsights('campaign'),
-      fetchInsights('adset'),
-    ]);
-    if(daily.error){ showError('dailyTable',daily.error.message); return; }
-    const processedDaily = currentObjective === 'ec' ? processEcData(daily) : daily;
-    if(currentObjective === 'ec') renderEcCards(processedDaily); else renderCards(processedDaily);
-    renderChart(processedDaily);
-    renderDailyTable(processedDaily);
-    const procCampaign = currentObjective==='ec' && !campaign.error ? processEcData(campaign) : campaign;
-    const procAdset    = currentObjective==='ec' && !adset.error    ? processEcData(adset)    : adset;
-    if(!campaign.error) { window._campaignData = procCampaign; renderCampaignTable(procCampaign); } else showError('campaignTable',campaign.error.message);
-    if(!adset.error)    { window._adsetData = procAdset;       renderAdsetTable(procAdset); }    else showError('adsetTable',adset.error.message);
+    if (isEc) {
+      // ── EC mode: always fetch both META and Google ──
+      const [metaDaily, metaCampaign, gData] = await Promise.all([
+        fetchInsights('account'),
+        fetchInsights('campaign'),
+        fetchGoogleData().catch(()=>({ daily:[], campaigns:[] })),
+      ]);
+
+      if (metaDaily.error) { showError('dailyTable', metaDaily.error.message); return; }
+      _metaDailyData   = processEcData(metaDaily);
+      _googleDailyData = gData.daily || [];
+
+      // Render media channel table (always in EC)
+      renderMediaChannelTable();
+
+      // Determine display data based on platform
+      let displayDaily;
+      if      (currentPlatform === 'google') displayDaily = _googleDailyData;
+      else if (currentPlatform === 'meta')   displayDaily = _metaDailyData;
+      else                                   displayDaily = mergeDaily(_metaDailyData, _googleDailyData);
+
+      renderEcCards(displayDaily);
+      renderChart(displayDaily);
+      renderDailyTable(displayDaily);
+
+      // Campaign table
+      const procCampaign = !metaCampaign.error ? processEcData(metaCampaign) : null;
+      if (currentPlatform === 'google') {
+        renderGoogleCampaignTable(gData.campaigns || []);
+      } else if (currentPlatform === 'all') {
+        const allCamp = [...(procCampaign||[]), ...(gData.campaigns||[])];
+        renderCampaignTable(allCamp);
+      } else {
+        if (procCampaign) renderCampaignTable(procCampaign);
+        else showError('campaignTable', metaCampaign.error.message);
+      }
+
+      // Adset / Ad (META only)
+      if (showAdTables) {
+        const metaAdset = await fetchInsights('adset');
+        const procAdset = !metaAdset.error ? processEcData(metaAdset) : null;
+        if (procAdset) renderAdsetTable(procAdset); else showError('adsetTable', metaAdset.error?.message||'');
+        const ad = await fetchInsights('ad');
+        const procAd = !ad.error ? processEcData(ad) : null;
+        if (procAd) renderAdTable(procAd); else showError('adTable', ad.error?.message||'');
+      }
+
+    } else {
+      // ── Branding mode ──────────────────────────────
+      _metaDailyData = []; _googleDailyData = [];
+      const [daily, campaign, adset] = await Promise.all([
+        fetchInsights('account'),
+        fetchInsights('campaign'),
+        fetchInsights('adset'),
+      ]);
+      if (daily.error) { showError('dailyTable', daily.error.message); return; }
+      renderCards(daily);
+      renderChart(daily);
+      renderDailyTable(daily);
+      if (!campaign.error) renderCampaignTable(campaign); else showError('campaignTable', campaign.error.message);
+      if (!adset.error)    renderAdsetTable(adset);    else showError('adsetTable',   adset.error.message);
+      const ad = await fetchInsights('ad');
+      if (!ad.error) renderAdTable(ad); else showError('adTable', ad.error.message);
+    }
   } catch(e) {
-    ['dailyTable','campaignTable','adsetTable'].forEach(id=>
-      document.getElementById(id).innerHTML='<div class="error-msg">⚠️ 無法連線後端，請確認 server.py 已啟動（port 5001）</div>'
-    );
-    document.getElementById('summaryCards').innerHTML='<div class="error-msg" style="grid-column:1/-1">⚠️ 無法連線後端</div>';
+    ['dailyTable','campaignTable'].forEach(id=>showError(id,'載入失敗：'+e.message));
+    document.getElementById('summaryCards').innerHTML='<div class="error-msg" style="grid-column:1/-1">⚠️ 載入失敗</div>';
   }
 }
 
