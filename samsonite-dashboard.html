@@ -238,7 +238,36 @@ body.at {
 }
 .section-label::after {
   content: ''; flex: 1; height: 1px; background: #eee;
+  order: 5;
 }
+.ms-wrap { order: 4; position: relative; text-transform: none; letter-spacing: 0; }
+.ms-toggle {
+  font-size: 12px; font-weight: 500; color: #333;
+  background: #fff; border: 1px solid #ddd; border-radius: 6px;
+  padding: 5px 26px 5px 10px; max-width: 340px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: relative; text-align: left;
+}
+.ms-toggle::after {
+  content: '▾'; position: absolute; right: 9px; top: 50%;
+  transform: translateY(-50%); color: #888; font-size: 11px;
+}
+.ms-toggle:hover { border-color: #999; }
+.ms-panel {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0;
+  z-index: 50; background: #fff; border: 1px solid #ddd; border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.12); padding: 6px;
+  min-width: 280px; max-width: 420px; max-height: 320px; overflow-y: auto;
+}
+.ms-panel.open { display: block; }
+.ms-opt {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 6px; cursor: pointer; font-size: 12px; color: #333;
+  font-weight: 500; white-space: normal; line-height: 1.35;
+}
+.ms-opt:hover { background: #f4f4f4; }
+.ms-opt input { margin: 0; cursor: pointer; flex-shrink: 0; }
+.ms-opt.ms-all { font-weight: 700; border-bottom: 1px solid #eee; border-radius: 0; margin-bottom: 4px; }
 
 /* ── Summary cards ───────────────────────────────────── */
 .summary-cards {
@@ -467,7 +496,12 @@ tr:hover td { background: #fafafa; }
 
     <!-- Ad Set -->
     <div class="section-gap" id="adsetSection">
-      <div class="section-label">受眾（Ad Set）拆分</div>
+      <div class="section-label">受眾（Ad Set）拆分
+        <div class="ms-wrap" id="adsetMs">
+          <button type="button" class="ms-toggle" id="adsetMsToggle" onclick="toggleAdsetMs(event)">全部活動</button>
+          <div class="ms-panel" id="adsetMsPanel"></div>
+        </div>
+      </div>
       <div class="table-section">
         <div class="table-inner" id="adsetTable">
           <div class="loading"><div class="spinner"></div> 載入中...</div>
@@ -1269,7 +1303,65 @@ function renderCampaignTable(data) {
   document.getElementById('campaignTable').innerHTML = buildTable(rows,totals,'活動名稱',cols);
 }
 
+let _adsetRawData = [];
+let _adsetSelected = new Set();   // empty = 全部
+let _adsetCampNames = [];
 function renderAdsetTable(data) {
+  _adsetRawData = data || [];
+  populateAdsetCampaignFilter();
+  drawAdsetTable();
+}
+
+function populateAdsetCampaignFilter() {
+  const panel = document.getElementById('adsetMsPanel');
+  const wrap  = document.getElementById('adsetMs');
+  if (!panel) return;
+  _adsetCampNames = [...new Set(_adsetRawData.map(r=>r.campaign_name).filter(Boolean))].sort();
+  // drop selections that no longer exist
+  _adsetSelected = new Set([..._adsetSelected].filter(n=>_adsetCampNames.includes(n)));
+  wrap.style.display = _adsetCampNames.length ? '' : 'none';
+  const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  panel.innerHTML =
+    `<label class="ms-opt ms-all"><input type="checkbox" id="adsetMsAll" onchange="onAdsetMsAll(this)"> 全部活動</label>` +
+    _adsetCampNames.map((n,i)=>
+      `<label class="ms-opt"><input type="checkbox" class="adsetMsChk" value="${esc(n)}" onchange="onAdsetMsChange()"> ${esc(n)}</label>`
+    ).join('');
+  syncAdsetMsUI();
+}
+
+function toggleAdsetMs(e){
+  e.stopPropagation();
+  const p=document.getElementById('adsetMsPanel');
+  p.classList.toggle('open');
+}
+document.addEventListener('click', e=>{
+  const w=document.getElementById('adsetMs');
+  if(w && !w.contains(e.target)) document.getElementById('adsetMsPanel')?.classList.remove('open');
+});
+
+function onAdsetMsAll(cb){
+  if(cb.checked){ _adsetSelected.clear(); }
+  syncAdsetMsUI(); drawAdsetTable();
+}
+function onAdsetMsChange(){
+  _adsetSelected = new Set(
+    [...document.querySelectorAll('.adsetMsChk')].filter(c=>c.checked).map(c=>c.value)
+  );
+  syncAdsetMsUI(); drawAdsetTable();
+}
+function syncAdsetMsUI(){
+  const all=_adsetSelected.size===0;
+  document.querySelectorAll('.adsetMsChk').forEach(c=>{ c.checked=_adsetSelected.has(c.value); });
+  const allBox=document.getElementById('adsetMsAll'); if(allBox) allBox.checked=all;
+  const btn=document.getElementById('adsetMsToggle');
+  if(btn) btn.textContent = all ? '全部活動'
+    : (_adsetSelected.size===1 ? [..._adsetSelected][0] : `已選 ${_adsetSelected.size} 個活動`);
+}
+
+function drawAdsetTable() {
+  const data = _adsetSelected.size
+    ? _adsetRawData.filter(r=>_adsetSelected.has(r.campaign_name))
+    : _adsetRawData;
   const isEc   = currentObjective === 'ec';
   const cols   = isEc ? getEcCols() : ALL_COLS;
   const compFn = isEc ? computeEcTotals : computeTotals;
