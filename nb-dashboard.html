@@ -857,8 +857,9 @@ function parseCampaignName(name) {
   }
 
   const nonMeta = afterObj.filter(p => p !== 'M' && p !== 'F' && !budgetRe.test(p));
-  // VIP：任一 part 含有 vip 即為 VIP 活動
-  const hasVip = nonMeta.some(p => /\bvip\b/i.test(p));
+  // VIP：素材部分或目標詞（如「互動(VIP)」，位於日期後第一個 part）含 vip 即為 VIP 活動
+  const noteWord = parts[dateIdx + 1] || '';
+  const hasVip = nonMeta.some(p => /vip/i.test(p)) || /vip/i.test(noteWord);
   // G號：從完整 nonMeta 字串搜尋（支援 G3、G3 : Album、Group-3 等）
   const gNum = extractGNum(nonMeta.join(' '));
   let ta = '-';
@@ -877,6 +878,11 @@ function parseCampaignName(name) {
 function norm(s) { return (s || '').replace(/[_\s\n\r]/g, '').toLowerCase(); }
 function normNote(s) { return (s || '').replace(/\s*\(.*?\)/g, '').trim(); }
 function noteHasVip(s) { return /\bvip\b/i.test(s || ''); }
+// 目標比對：忽略大小寫與單複數（View/Views、Link/Links）
+function objMatches(a, b) {
+  const na = normNote(a).toLowerCase(), nb = normNote(b).toLowerCase();
+  return na === nb || na + 's' === nb || nb + 's' === na;
+}
 
 function fuzzyMatMatch(nm, nc) {
   if (!nm || !nc) return false;
@@ -893,8 +899,8 @@ function findMatchingCampaigns(planRow, campaigns) {
   const results = [];
 
   for (const c of campaigns) {
-    // 1. Objective match (ignore parenthetical like VIP)
-    if (normNote(c.objective) !== normNote(planRow.note)) continue;
+    // 1. Objective match (ignore parenthetical like VIP, tolerate View/Views)
+    if (!objMatches(c.objective, planRow.note)) continue;
     // 2. VIP must match both sides
     if (planVip !== c.hasVip) continue;
     // 3. TA check
