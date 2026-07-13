@@ -541,11 +541,8 @@ let dailyData  = [];
 let _metaDailyData   = [];
 let _googleDailyData = [];
 
-const GOOGLE_SHEET_ID = '1wHXCF9g2mpfVWhzfPr1CslDLwYvvmjiXK8nmN2PM8Rs';
-const GOOGLE_CLIENT_NAMES = {
-  samsonite: 'Samsonite',
-  american_tourister: 'American Tourister',
-};
+// Google Ads data now comes DIRECTLY from the accounts via the Vercel API proxy.
+const GOOGLE_API_BASE = 'https://ss-at-dashboard.vercel.app';
 const GOOGLE_COLS = ['spend','inline_link_clicks','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
 
 // Brand colour palettes
@@ -742,43 +739,24 @@ function parseCSVLine(line) {
 async function fetchGoogleData() {
   const since = document.getElementById('dateSince').value;
   const until = document.getElementById('dateUntil').value;
-  const clientName = GOOGLE_CLIENT_NAMES[currentBrand];
 
-  const url = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=csv&gid=0`;
-  const resp = await fetch(url, { redirect: 'follow' });
-  const text = await resp.text();
-
-  const lines = text.trim().split('\n');
-  const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g,''));
-
-  // Data is CUMULATIVE per hour: for each (date × campaign), keep the LAST snapshot only
-  // Key: "date|campaign_name" → latest row
-  const latestByKey = {};
-
-  for (let i = 1; i < lines.length; i++) {
-    const vals = parseCSVLine(lines[i]);
-    if (vals.length < headers.length) continue;
-    const row = {};
-    headers.forEach((h, idx) => row[h] = (vals[idx]||'').replace(/^"|"$/g,''));
-
-    if (row.client_name !== clientName) continue;
-    const date = (row.captured_at || '').split(' ')[0];
-    if (!date || date < since || date > until) continue;
-
-    const key = `${date}|${row.campaign_name||'Unknown'}`;
-    // Zero-pad single-digit hours so string comparison works: "9:15" → "09:15"
-    const ts = (row.captured_at || '').replace(/(\d{4}-\d{2}-\d{2}) (\d):/, '$1 0$2:');
-    if (!latestByKey[key] || ts > (latestByKey[key]._ts || '')) {
-      latestByKey[key] = { ...row, date_start: date, _ts: ts };
-    }
+  const url = `${GOOGLE_API_BASE}/api/google?brand=${encodeURIComponent(currentBrand)}`
+            + `&since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`;
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    let detail = '';
+    try { detail = JSON.stringify(await resp.json()); } catch (e) { detail = await resp.text().catch(()=>''); }
+    throw new Error(`Google Ads API 錯誤 (${resp.status}) ${detail}`);
   }
+  const json = await resp.json();
+  const apiRows = json.rows || [];
 
-  // Now aggregate from the latest snapshots
+  // Aggregate the per-day × campaign rows from the API
   const byDate = {};
   const byCampaign = {};
 
-  Object.values(latestByKey).forEach(row => {
-    const date  = row.date_start;
+  apiRows.forEach(row => {
+    const date  = row.date;
     const cname = row.campaign_name || 'Unknown';
     const cost  = Number(row.cost || 0);
     const clks  = Number(row.clicks || 0);
