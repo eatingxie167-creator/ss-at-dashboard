@@ -361,6 +361,36 @@ tr:hover td { background: #fafafa; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-msg { color: #e53935; padding: 20px; text-align: center; font-size: 13px; }
+
+/* ── Ad creative thumbnail + lightbox ─────────────────── */
+.ad-name-cell { display: flex; align-items: center; gap: 10px; }
+.ad-thumb {
+  width: 40px; height: 40px; object-fit: cover; border-radius: 6px;
+  border: 1px solid #e5e5e5; cursor: zoom-in; flex: 0 0 auto;
+  background: #f4f4f4; transition: transform .12s ease;
+}
+.ad-thumb:hover { transform: scale(1.08); }
+.ad-thumb-empty {
+  width: 40px; height: 40px; border-radius: 6px; flex: 0 0 auto;
+  background: #f4f4f4; border: 1px dashed #ddd;
+  display: flex; align-items: center; justify-content: center;
+  color: #bbb; font-size: 15px;
+}
+.lightbox {
+  display: none; position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,.78); align-items: center; justify-content: center;
+  cursor: zoom-out; padding: 32px;
+}
+.lightbox.open { display: flex; }
+.lightbox img {
+  max-width: 90vw; max-height: 90vh; border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0,0,0,.5); background: #fff;
+}
+.lightbox .lb-close {
+  position: absolute; top: 20px; right: 28px; color: #fff;
+  font-size: 34px; line-height: 1; cursor: pointer; opacity: .8;
+}
+.lightbox .lb-close:hover { opacity: 1; }
 </style>
 </head>
 <body>
@@ -1349,13 +1379,97 @@ function drawAdsetTable() {
   document.getElementById('adsetTable').innerHTML = buildTable(rows,totals,'受眾名稱',cols);
 }
 
+// Map of ad_name → { thumb, full } for the current view. Populated by fetchAdCreatives().
+let _adImageMap = {};
+
+function _escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Token to guard against stale thumbnail loads when the user switches views mid-fetch.
+let _adThumbToken = 0;
+
+function _extractCreativeImg(cr) {
+  if (!cr) return null;
+  const oss = cr.object_story_spec || {};
+  const ossPic = oss.link_data?.picture || oss.video_data?.image_url || oss.template_data?.picture || null;
+  const thumb = cr.thumbnail_url || ossPic || cr.image_url || null;
+  const full  = cr.image_url || ossPic || cr.thumbnail_url || null;
+  return (thumb || full) ? { thumb, full: full || thumb } : null;
+}
+
+// Fetch creative thumbnails for a SPECIFIC set of ad IDs (only those shown in the table),
+// batched 50 per request. Keyed by ad name. Fully defensive: failures return {}.
+async function fetchAdCreativesByIds(ids) {
+  try {
+    const map = {};
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      const params = new URLSearchParams({
+        access_token: ACCESS_TOKEN,
+        ids: chunk.join(','),
+        fields: 'name,creative{thumbnail_url,image_url,object_story_spec}',
+      });
+      const resp = await fetch(`${GRAPH_URL}/?${params}`);
+      const json = await resp.json();
+      if (json.error) continue;
+      Object.values(json).forEach(ad => {
+        if (!ad || !ad.name || map[ad.name]) return;   // first one wins per name
+        const img = _extractCreativeImg(ad.creative);
+        if (img) map[ad.name] = img;
+      });
+    }
+    return map;
+  } catch (e) {
+    return {};
+  }
+}
+
+// Non-blocking: load thumbnails for the ads currently in the table, then re-render.
+// Aborts silently if the view changed (token mismatch) or nothing was found.
+async function loadAdThumbs(adData, token) {
+  try {
+    const ids = [...new Set((adData || []).map(r => r.ad_id).filter(Boolean))];
+    if (!ids.length) return;
+    const map = await fetchAdCreativesByIds(ids);
+    if (token !== _adThumbToken) return;              // user switched view — drop stale result
+    if (!map || !Object.keys(map).length) return;     // nothing to show — leave placeholders
+    _adImageMap = map;
+    renderAdTable(adData);
+  } catch (e) { /* thumbnails are best-effort; never break the table */ }
+}
+
+function _adNameCell(name) {
+  const img = _adImageMap[name];
+  const label = _escapeHtml(name);
+  if (img && img.thumb) {
+    return `<div class="ad-name-cell">`
+         + `<img class="ad-thumb" src="${_escapeHtml(img.thumb)}" alt="" loading="lazy" `
+         + `onclick="openLightbox('${_escapeHtml(img.full).replace(/'/g,"\\'")}')" `
+         + `onerror="this.outerHTML='<span class=\\'ad-thumb-empty\\'>—</span>'">`
+         + `<span>${label}</span></div>`;
+  }
+  return `<div class="ad-name-cell"><span class="ad-thumb-empty">—</span><span>${label}</span></div>`;
+}
+
+function openLightbox(url) {
+  if (!url) return;
+  document.getElementById('lightboxImg').src = url;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightboxImg').src = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
 function renderAdTable(data) {
   const isEc   = currentObjective === 'ec';
   const cols   = isEc ? getEcCols() : ALL_COLS;
   const compFn = isEc ? computeEcTotals : computeTotals;
   const groups = _groupBy(data,'ad_name','ad_name',compFn);
   const totals = compFn(groups);
-  const rows   = groups.map(g=>buildRow(g.name,g,cols)).join('');
+  const rows   = groups.map(g=>buildRow(_adNameCell(g.name),g,cols)).join('');
   document.getElementById('adTable').innerHTML = buildTable(rows,totals,'素材名稱',cols);
 }
 
@@ -1378,6 +1492,10 @@ async function loadAll() {
   const isEc = currentObjective === 'ec';
   const showAdTables = !isEc || currentPlatform === 'meta';
   if (showAdTables) { showLoading('adsetTable'); showLoading('adTable'); }
+
+  // New view: invalidate any in-flight thumbnail loads and clear stale images.
+  const thumbToken = ++_adThumbToken;
+  _adImageMap = {};
 
   try {
     if (isEc) {
@@ -1424,7 +1542,8 @@ async function loadAll() {
         if (procAdset) renderAdsetTable(procAdset); else showError('adsetTable', metaAdset.error?.message||'');
         const ad = await fetchInsights('ad');
         const procAd = !ad.error ? processEcData(ad) : null;
-        if (procAd) renderAdTable(procAd); else showError('adTable', ad.error?.message||'');
+        if (procAd) { renderAdTable(procAd); loadAdThumbs(procAd, thumbToken); }
+        else showError('adTable', ad.error?.message||'');
       }
 
     } else {
@@ -1442,7 +1561,8 @@ async function loadAll() {
       if (!campaign.error) renderCampaignTable(campaign); else showError('campaignTable', campaign.error.message);
       if (!adset.error)    renderAdsetTable(adset);    else showError('adsetTable',   adset.error.message);
       const ad = await fetchInsights('ad');
-      if (!ad.error) renderAdTable(ad); else showError('adTable', ad.error.message);
+      if (!ad.error) { renderAdTable(ad); loadAdThumbs(ad, thumbToken); }
+      else showError('adTable', ad.error.message);
     }
   } catch(e) {
     ['dailyTable','campaignTable'].forEach(id=>showError(id,'載入失敗：'+e.message));
@@ -1459,5 +1579,11 @@ window.onload = () => {
   setPreset(document.querySelector('[data-preset="last_30"]'),'last_30');
 };
 </script>
+
+<!-- ── Creative lightbox ─────────────────────────────── -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <span class="lb-close">&times;</span>
+  <img id="lightboxImg" src="" alt="素材大圖" onclick="event.stopPropagation()">
+</div>
 </body>
 </html>
