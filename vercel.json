@@ -1,0 +1,8 @@
+{
+  "builds": [
+    { "src": "api/google.py", "use": "@vercel/python" }
+  ],
+  "routes": [
+    { "src": "/api/google", "dest": "/api/google.py" }
+  ]
+}
