@@ -1241,12 +1241,13 @@ function computeTotals(data) {
 function computeEcTotals(data) {
   const sp=sum(data,'spend'), lc=sum(data,'inline_link_clicks');
   const pc=sum(data,'purchase_count'), pv=sum(data,'purchase_value');
+  const atc=sum(data,'add_to_cart');
   return {
     spend:sp, inline_link_clicks:lc,
     cost_per_inline_link_click: lc>0?sp/lc:0,
     purchase_count:pc, purchase_value:pv,
     cpa: pc>0?sp/pc:0, roas: sp>0?pv/sp:0,
-    add_to_cart:0, cpatc:0,
+    add_to_cart:atc, cpatc: atc>0?sp/atc:0,
   };
 }
 
