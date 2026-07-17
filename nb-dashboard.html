@@ -758,9 +758,6 @@ function getPlanDateRange(planRow) {
 // SHEET 2: AUDIENCE
 // ============================================================
 function parseAudienceSheet(rows) {
-  console.log('[audience] total rows:', rows.length);
-  if (rows.length > 0) console.log('[audience] header:', JSON.stringify(rows[0]));
-  if (rows.length > 1) console.log('[audience] row1:', JSON.stringify(rows[1]));
   const hdr = rows[0] || [];
   const placementIdx = hdr.findIndex(h => /^placement$/i.test(h.trim()));
   const matIdx = hdr.findIndex(h => h.includes('Material'));
@@ -770,10 +767,10 @@ function parseAudienceSheet(rows) {
   let descIdx = hdr.findIndex(h => h.includes('Target Audience'));
   if (descIdx === -1) descIdx = 7;
   if (noteIdx === -1 && matIdx >= 0 && descIdx > matIdx + 1) noteIdx = matIdx + 1;
-  console.log('[audience] matIdx:', matIdx, 'noteIdx:', noteIdx, 'descIdx:', descIdx);
 
   const audience = [];
   let lastDesc = '';
+  let lastMf = '';
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length < 3) continue;
@@ -786,8 +783,10 @@ function parseAudienceSheet(rows) {
     if (desc) lastDesc = desc;
     if (!mat && !note && !placement) continue;
 
-    // 男女比：優先讀 M/F 欄，沒填或「不鎖男女」就是全性別（null）
-    const mfRaw = mfIdx >= 0 ? (row[mfIdx] || '').trim() : '';
+    // 男女比：優先讀 M/F 欄，沒填就往上找最近一列有填的值（沿用 lastDesc 的做法）
+    const mfCell = mfIdx >= 0 ? (row[mfIdx] || '').trim() : '';
+    const mfRaw = mfCell || lastMf;
+    if (mfCell) lastMf = mfCell;
     let genderRatio = null;
     const mfNum = mfRaw.match(/男\s*(\d+)\s*女\s*(\d+)/);
     if (mfNum) {
@@ -805,7 +804,6 @@ function parseAudienceSheet(rows) {
     const am = desc.match(/TA[：:﹕]\s*(\d+)\s*[-－~～–—至到]\s*(\d+)/i)
             || desc.match(/(\d{2})\s*[-－~～–—]\s*(\d{2})\s*[歲A（(]/);
     const ageRange = am ? { min: parseInt(am[1]), max: parseInt(am[2]) } : null;
-    console.log('[audience]', mat, note, '| desc:', desc.slice(0,60), '| age:', ageRange);
 
     const rm = desc.match(/地區[：:]\s*([^\/／\n]+)/);
     let planRegion = null;
@@ -1127,7 +1125,7 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
     const planRange = getPlanDateRange(planRow);
 
     if (mCamp || fCamp) {
-      const gRatio = genderRatio || { male: 0.3, female: 0.7 };
+      const gRatio = genderRatio || null;
       const fStartDate = fCamp?.startDate || mCamp?.startDate;
       const fEndDate = fCamp?.endDate || mCamp?.endDate;
       const mStartDate = mCamp?.startDate || fCamp?.startDate;
@@ -1166,7 +1164,7 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
         <td rowspan="2">${planRow.note}</td>
         <td rowspan="2" ${!dateOk?'class="text-red"':''}>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
         <td rowspan="2" class="num${!fBOk||!mBOk?' text-red':''}">${fmt(planRow.totalBudget)}</td>
-        <td class="gender-cell"><span class="gender-chip f">女 ${Math.round(gRatio.female*10)}</span></td>
+        <td class="gender-cell"><span class="gender-chip f">女${gRatio?` ${Math.round(gRatio.female*10)}`:''}</span></td>
         <td>${campNameCell(fCamp)}</td>
         <td class="num col-sep">${fProg?fmt(fProg.todayAmt):'—'}</td>
         <td class="num">${fProg?fmt(fProg.lower):'—'}</td>
@@ -1180,7 +1178,7 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
         <td rowspan="2">${ageStatusIcon(ageOk,!!ageRange)}</td>
       </tr>`);
       rows.push(`<tr class="mf-second-row row-hover">
-        <td class="gender-cell"><span class="gender-chip m">男 ${Math.round(gRatio.male*10)}</span></td>
+        <td class="gender-cell"><span class="gender-chip m">男${gRatio?` ${Math.round(gRatio.male*10)}`:''}</span></td>
         <td>${campNameCell(mCamp)}</td>
         <td class="num col-sep">${mProg?fmt(mProg.todayAmt):'—'}</td>
         <td class="num">${mProg?fmt(mProg.lower):'—'}</td>
@@ -1327,7 +1325,7 @@ function renderRegionTable(planRows, campaigns, regionMap, audience) {
 
     const matLabel = planRow.gNum ? `${planRow.gNum}：${planRow.material || '—'}` : (planRow.material || '—');
     const taLabel = planRow.ta !== '-' ? `<span class="ta-chip">${planRow.ta}</span>` : '';
-    const gRatio = audRow?.genderRatio || { male: 0.3, female: 0.7 };
+    const gRatio = audRow?.genderRatio || null;
 
     if (mCamp || fCamp) {
       const fRow = calcRegionRow(fCamp ? (regionMap[fCamp.name]||{}) : {}, planRegion||new Set(), isFullTaiwan);
@@ -1337,14 +1335,14 @@ function renderRegionTable(planRows, campaigns, regionMap, audience) {
       rows.push(`<tr class="mf-first-row row-hover">
         <td rowspan="2"><div class="material-cell">${matLabel}</div>${taLabel}</td>
         <td rowspan="2">${planRow.note}</td>
-        <td class="gender-cell"><span class="gender-chip f">女 ${Math.round(gRatio.female*10)}</span></td>
+        <td class="gender-cell"><span class="gender-chip f">女${gRatio?` ${Math.round(gRatio.female*10)}`:''}</span></td>
         <td rowspan="2" style="color:#555;font-size:12px">${planRegionStr}</td>
         <td><div class="region-list">${fRow.tags}</div></td>
         <td class="num ${fRow.hasWarn?'num-err':'num-ok'}">${fRow.outPctStr}</td>
         <td>${fRow.badge}</td>
       </tr>`);
       rows.push(`<tr class="mf-second-row row-hover">
-        <td class="gender-cell"><span class="gender-chip m">男 ${Math.round(gRatio.male*10)}</span></td>
+        <td class="gender-cell"><span class="gender-chip m">男${gRatio?` ${Math.round(gRatio.male*10)}`:''}</span></td>
         <td><div class="region-list">${mRow.tags}</div></td>
         <td class="num ${mRow.hasWarn?'num-err':'num-ok'}">${mRow.outPctStr}</td>
         <td>${mRow.badge}</td>
