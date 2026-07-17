@@ -968,14 +968,15 @@ function calcProgress(planRow, startDate, endDate, genderRatio, gender) {
     const [dy, dm, dd] = dk.split('-').map(Number);
     const d = new Date(dy, dm - 1, dd); // 本地時間，避免 UTC 偏移
     let dayAmt = amt;
-    if (gender && genderRatio) dayAmt = amt * (gender === 'F' ? genderRatio.female : genderRatio.male);
+    // 抓不到男女比時，計算用 5:5 分（畫面顯示仍只標「男/女」不帶數字）
+    if (gender) { const r = genderRatio || { male: 0.5, female: 0.5 }; dayAmt = amt * (gender === 'F' ? r.female : r.male); }
     if (d >= startDate && d <= yesterday) lower += dayAmt;
     if (d >= startDate && d <= today) upper += dayAmt;
     if (dk === dateKey(today)) todayAmt = dayAmt;
   }
 
   let planTotal = planRow.totalBudget;
-  if (gender && genderRatio) planTotal = planRow.totalBudget * (gender === 'F' ? genderRatio.female : genderRatio.male);
+  if (gender) { const r = genderRatio || { male: 0.5, female: 0.5 }; planTotal = planRow.totalBudget * (gender === 'F' ? r.female : r.male); }
 
   // 若計畫表沒有日期資料（無法解析月份），退回用總預算判斷
   // 活動已結束 → 預期花完，lower=upper=total
