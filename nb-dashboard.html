@@ -1122,7 +1122,7 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
     const fCamp = matchedCamps.find(c => c.gender === 'F');
     const noGenderCamps = matchedCamps.filter(c => !c.gender);
 
-    const matLabel = planRow.material || '—';
+    const matLabel = planRow.gNum ? `${planRow.gNum}：${planRow.material || '—'}` : (planRow.material || '—');
     const taLabel = planRow.ta !== '-' ? `<span class="ta-chip">${planRow.ta}</span>` : '';
     const planRange = getPlanDateRange(planRow);
 
@@ -1325,7 +1325,7 @@ function renderRegionTable(planRows, campaigns, regionMap, audience) {
     const fCamp = matchedCamps.find(c => c.gender === 'F');
     const noGenderCamps = matchedCamps.filter(c => !c.gender);
 
-    const matLabel = planRow.material || '—';
+    const matLabel = planRow.gNum ? `${planRow.gNum}：${planRow.material || '—'}` : (planRow.material || '—');
     const taLabel = planRow.ta !== '-' ? `<span class="ta-chip">${planRow.ta}</span>` : '';
     const gRatio = audRow?.genderRatio || { male: 0.3, female: 0.7 };
 
