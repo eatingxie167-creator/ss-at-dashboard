@@ -6,6 +6,7 @@
 <title>Meta Branding Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 /* ── Reset & Base ─────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -208,6 +209,16 @@ body.at {
   transition: opacity 0.15s;
 }
 .apply-btn:hover { opacity: 0.85; }
+.download-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 14px;
+  background: #fff;
+  color: #444; border: 1px solid #e0e0e0; border-radius: 6px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: all 0.15s;
+}
+.download-btn:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+.download-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Platform switcher ───────────────────────────────── */
 .platform-switcher {
@@ -440,6 +451,7 @@ tr:hover td { background: #fafafa; }
       </div>
     </div>
     <div class="date-controls">
+      <button class="download-btn" id="downloadBtn" onclick="downloadExcel()">⬇ 下載Excel</button>
       <button class="date-preset" onclick="setPreset(this,'last_7')" data-preset="last_7">近7天</button>
       <button class="date-preset active" onclick="setPreset(this,'last_30')" data-preset="last_30">近30天</button>
       <button class="date-preset" onclick="setPreset(this,'this_month')" data-preset="this_month">本月</button>
@@ -560,7 +572,7 @@ const ACCOUNT_IDS = {
   american_tourister:  { branding: 'act_1530988521034172',  ec: 'act_484946893063783'  },
 };
 const BRANDING_FIELDS = 'spend,impressions,cpm,inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click';
-const EC_FIELDS       = 'spend,inline_link_clicks,cost_per_inline_link_click,actions,action_values';
+const EC_FIELDS       = 'spend,impressions,inline_link_clicks,cost_per_inline_link_click,actions,action_values';
 let currentBrand     = 'samsonite';
 let currentObjective = 'branding';
 let currentPlatform  = 'meta'; // 'meta' | 'google' | 'all'
@@ -573,7 +585,7 @@ let _googleDailyData = [];
 
 // Google Ads data now comes DIRECTLY from the accounts via the Vercel API proxy.
 const GOOGLE_API_BASE = 'https://ss-at-dashboard.vercel.app';
-const GOOGLE_COLS = ['spend','inline_link_clicks','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
+const GOOGLE_COLS = ['spend','impressions','inline_link_clicks','ctr','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
 
 // Brand colour palettes
 const PALETTE = {
@@ -708,6 +720,7 @@ const fmt = {
   cpm:                        v=>`$${Number(v||0).toFixed(2)}`,
   inline_link_clicks:         v=>Number(v||0).toLocaleString('en'),
   inline_link_click_ctr:      v=>`${Number(v||0).toFixed(2)}%`,
+  ctr:                        v=>`${Number(v||0).toFixed(2)}%`,
   cost_per_inline_link_click: v=>`$${Number(v||0).toFixed(2)}`,
   purchase_count:             v=>Number(v||0).toLocaleString('en'),
   purchase_value:             v=>`$${Number(v||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0})}`,
@@ -723,7 +736,7 @@ const fmt = {
 };
 const labels = {
   spend:'花費', impressions:'曝光', cpm:'CPM',
-  inline_link_clicks:'連結點擊', inline_link_click_ctr:'CTR(link)',
+  inline_link_clicks:'連結點擊', inline_link_click_ctr:'CTR(link)', ctr:'CTR',
   cost_per_inline_link_click:'CPC(link)',
   purchase_count:'購買數', purchase_value:'購買價值', cpa:'CPA', roas:'ROAS',
   add_to_cart:'購物車', cpatc:'CPATC',
@@ -739,11 +752,15 @@ function processEcRow(r) {
   const pv  = getActionValue(r.action_values, 'purchase');
   const atc = getActionValue(r.actions, 'add_to_cart');
   const sp  = Number(r.spend||0);
+  const imp = Number(r.impressions||0);
+  const lc  = Number(r.inline_link_clicks||0);
   return {
     ...r,
     purchase_count: pc,
     purchase_value: pv,
     add_to_cart: atc,
+    impressions: imp,
+    inline_link_click_ctr: imp>0 ? (lc/imp)*100 : 0,
     cpa:   pc>0  ? sp/pc  : 0,
     cpatc: atc>0 ? sp/atc : 0,
     roas:  sp>0  ? pv/sp  : 0,
@@ -790,27 +807,31 @@ async function fetchGoogleData() {
     const cname = row.campaign_name || 'Unknown';
     const cost  = Number(row.cost || 0);
     const clks  = Number(row.clicks || 0);
+    const imp   = Number(row.impressions || 0);
     const conv  = Number(row.conversions || 0);
     const convV = Number(row.conversions_value || 0);
 
     // daily sum across campaigns
-    if (!byDate[date]) byDate[date] = { date_start: date, spend: 0, inline_link_clicks: 0, purchase_count: 0, purchase_value: 0 };
+    if (!byDate[date]) byDate[date] = { date_start: date, spend: 0, impressions: 0, inline_link_clicks: 0, purchase_count: 0, purchase_value: 0 };
     byDate[date].spend              += cost;
+    byDate[date].impressions        += imp;
     byDate[date].inline_link_clicks += clks;
     byDate[date].purchase_count     += conv;
     byDate[date].purchase_value     += convV;
 
     // campaign total
-    if (!byCampaign[cname]) byCampaign[cname] = { campaign_name: cname, spend: 0, inline_link_clicks: 0, purchase_count: 0, purchase_value: 0 };
+    if (!byCampaign[cname]) byCampaign[cname] = { campaign_name: cname, spend: 0, impressions: 0, inline_link_clicks: 0, purchase_count: 0, purchase_value: 0 };
     byCampaign[cname].spend              += cost;
+    byCampaign[cname].impressions        += imp;
     byCampaign[cname].inline_link_clicks += clks;
     byCampaign[cname].purchase_count     += conv;
     byCampaign[cname].purchase_value     += convV;
   });
 
   const finalize = r => {
-    const sp = r.spend, lc = r.inline_link_clicks, pc = r.purchase_count, pv = r.purchase_value;
+    const sp = r.spend, lc = r.inline_link_clicks, imp = r.impressions, pc = r.purchase_count, pv = r.purchase_value;
     return { ...r, add_to_cart: 0, cpatc: 0,
+      ctr: imp > 0 ? (lc/imp)*100 : 0,
       cost_per_inline_link_click: lc > 0 ? sp/lc : 0,
       cpa: pc > 0 ? sp/pc : 0,
       roas: sp > 0 ? pv/sp : 0 };
@@ -829,8 +850,8 @@ function renderGoogleCards(data) {
 function renderGoogleCampaignTable(campaigns) {
   const cols = GOOGLE_COLS;
   const compFn = rows => {
-    const sp=sum(rows,'spend'), lc=sum(rows,'inline_link_clicks'), pc=sum(rows,'purchase_count'), pv=sum(rows,'purchase_value');
-    return { spend:sp, inline_link_clicks:lc, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, add_to_cart:0, cpatc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
+    const sp=sum(rows,'spend'), lc=sum(rows,'inline_link_clicks'), imp=sum(rows,'impressions'), pc=sum(rows,'purchase_count'), pv=sum(rows,'purchase_value');
+    return { spend:sp, impressions:imp, inline_link_clicks:lc, ctr:imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, add_to_cart:0, cpatc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
   };
   const totals = compFn(campaigns);
   const rows = campaigns.map(g => buildRow(g.campaign_name, g, cols)).join('');
@@ -842,15 +863,16 @@ function mergeDaily(metaArr, googleArr) {
   const map = {};
   [...metaArr, ...googleArr].forEach(r => {
     const d = r.date_start;
-    if (!map[d]) map[d] = { date_start: d, spend:0, inline_link_clicks:0, purchase_count:0, purchase_value:0 };
+    if (!map[d]) map[d] = { date_start: d, spend:0, impressions:0, inline_link_clicks:0, purchase_count:0, purchase_value:0 };
     map[d].spend              += Number(r.spend||0);
+    map[d].impressions        += Number(r.impressions||0);
     map[d].inline_link_clicks += Number(r.inline_link_clicks||0);
     map[d].purchase_count     += Number(r.purchase_count||0);
     map[d].purchase_value     += Number(r.purchase_value||0);
   });
   return Object.values(map).sort((a,b)=>a.date_start.localeCompare(b.date_start)).map(r => {
-    const sp=r.spend, lc=r.inline_link_clicks, pc=r.purchase_count, pv=r.purchase_value;
-    return { ...r, cost_per_inline_link_click:lc>0?sp/lc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0, add_to_cart:0, cpatc:0 };
+    const sp=r.spend, lc=r.inline_link_clicks, imp=r.impressions, pc=r.purchase_count, pv=r.purchase_value;
+    return { ...r, ctr: imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0, add_to_cart:0, cpatc:0 };
   });
 }
 
@@ -909,20 +931,11 @@ function renderCards(data) {
 }
 
 function renderEcCards(data) {
-  const sp = sum(data,'spend'), lc = sum(data,'inline_link_clicks');
-  const pc = sum(data,'purchase_count'), pv = sum(data,'purchase_value');
-  const atc = sum(data,'add_to_cart');
-  const totals = {
-    spend: sp, inline_link_clicks: lc,
-    cost_per_inline_link_click: lc>0?sp/lc:0,
-    add_to_cart: atc, cpatc: atc>0?sp/atc:0,
-    purchase_count: pc, purchase_value: pv,
-    cpa: pc>0?sp/pc:0, roas: sp>0?pv/sp:0,
-  };
+  const totals = computeEcTotals(data);
   const cols = getEcCols();
   const el = document.getElementById('summaryCards');
-  el.className = cols.length === 9 ? 'summary-cards nine' : 'summary-cards seven';
-  el.style.gridTemplateColumns = '';
+  el.className = 'summary-cards';
+  el.style.gridTemplateColumns = `repeat(${cols.length}, 1fr)`;
   el.innerHTML = cols.map(k=>`
     <div class="card">
       <div class="card-label">${labels[k]}</div>
@@ -948,7 +961,7 @@ function destroyPieCharts() {
 }
 
 const MONEY_KEYS = new Set(['spend','cpm','cost_per_inline_link_click','purchase_value','cpa']);
-const PCT_KEYS   = new Set(['inline_link_click_ctr']);
+const PCT_KEYS   = new Set(['inline_link_click_ctr','ctr']);
 
 function axisFormatter(key) {
   return v => {
@@ -1127,8 +1140,9 @@ function renderMediaChannelTable() {
   }, []));
   // Simpler: recompute combined
   const sp=metaTotals.spend+googleTotals.spend, lc=metaTotals.inline_link_clicks+googleTotals.inline_link_clicks;
+  const imp=metaTotals.impressions+googleTotals.impressions;
   const pc=metaTotals.purchase_count+googleTotals.purchase_count, pv=metaTotals.purchase_value+googleTotals.purchase_value;
-  const combined = { spend:sp, inline_link_clicks:lc, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
+  const combined = { spend:sp, impressions:imp, inline_link_clicks:lc, ctr:imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
 
   const header = `<tr><th style="text-align:left">渠道</th>${cols.map(k=>`<th>${labels[k]}</th>`).join('')}</tr>`;
   const metaRow   = `<tr class="channel-meta"><td>META</td>${cols.map(k=>`<td>${fmt[k](metaTotals[k])}</td>`).join('')}</tr>`;
@@ -1239,11 +1253,13 @@ function computeTotals(data) {
 }
 
 function computeEcTotals(data) {
-  const sp=sum(data,'spend'), lc=sum(data,'inline_link_clicks');
+  const sp=sum(data,'spend'), lc=sum(data,'inline_link_clicks'), imp=sum(data,'impressions');
   const pc=sum(data,'purchase_count'), pv=sum(data,'purchase_value');
   const atc=sum(data,'add_to_cart');
   return {
-    spend:sp, inline_link_clicks:lc,
+    spend:sp, impressions:imp, inline_link_clicks:lc,
+    inline_link_click_ctr: imp>0?(lc/imp)*100:0,
+    ctr: imp>0?(lc/imp)*100:0,
     cost_per_inline_link_click: lc>0?sp/lc:0,
     purchase_count:pc, purchase_value:pv,
     cpa: pc>0?sp/pc:0, roas: sp>0?pv/sp:0,
@@ -1254,8 +1270,8 @@ function computeEcTotals(data) {
 const COL_LABEL = labels; // reuse labels object
 
 const ALL_COLS    = ['spend','impressions','cpm','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click'];
-const EC_ALL_COLS      = ['spend','inline_link_clicks','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
-const META_EC_ALL_COLS = ['spend','inline_link_clicks','cost_per_inline_link_click','add_to_cart','cpatc','purchase_count','purchase_value','cpa','roas'];
+const EC_ALL_COLS      = ['spend','impressions','inline_link_clicks','ctr','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
+const META_EC_ALL_COLS = ['spend','impressions','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click','add_to_cart','cpatc','purchase_count','purchase_value','cpa','roas'];
 // Return correct EC cols based on current platform
 function getEcCols() {
   return (currentObjective === 'ec' && currentPlatform === 'meta') ? META_EC_ALL_COLS : EC_ALL_COLS;
@@ -1472,6 +1488,52 @@ function renderAdTable(data) {
   const totals = compFn(groups);
   const rows   = groups.map(g=>buildRow(_adNameCell(g.name),g,cols)).join('');
   document.getElementById('adTable').innerHTML = buildTable(rows,totals,'素材名稱',cols);
+}
+
+// ── Excel export (cards + tables, excludes chart) ────────
+function downloadExcel() {
+  if (typeof XLSX === 'undefined') { alert('Excel 匯出元件載入失敗，請重新整理再試'); return; }
+
+  const wb = XLSX.utils.book_new();
+
+  // 摘要卡片 → key/value sheet
+  const cardEls = [...document.querySelectorAll('#summaryCards .card')];
+  if (cardEls.length) {
+    const aoa = [['指標', '數值'], ...cardEls.map(c => [
+      c.querySelector('.card-label')?.textContent.trim() || '',
+      c.querySelector('.card-value')?.textContent.trim() || '',
+    ])];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), '摘要卡片');
+  }
+
+  // Rendered <table> sections → one sheet each (skipped automatically if hidden/empty)
+  const addTableSheet = (containerId, sheetName) => {
+    const container = document.getElementById(containerId);
+    if (!container || container.offsetParent === null) return; // section hidden for current view
+    const table = container.querySelector('table');
+    if (!table) return;
+    // raw:true keeps every cell as plain text exactly as shown on screen
+    // ($ / % / x suffixes), instead of SheetJS's inconsistent auto number-sniffing.
+    const ws = XLSX.utils.table_to_sheet(table, { raw: true });
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  };
+
+  addTableSheet('mediaChannelTable', '媒體渠道表現');
+  addTableSheet('dailyTable', '每日明細');
+  addTableSheet('campaignTable', '活動');
+  addTableSheet('adsetTable', '受眾');
+  addTableSheet('adTable', '素材');
+
+  if (wb.SheetNames.length === 0) { alert('目前沒有可下載的資料'); return; }
+
+  const brandName = currentBrand === 'samsonite' ? 'Samsonite' : 'American_Tourister';
+  const objName   = currentObjective === 'ec' ? 'EC' : 'Branding';
+  const platName  = currentObjective === 'ec' ? `_${currentPlatform}` : '';
+  const since = document.getElementById('dateSince').value;
+  const until = document.getElementById('dateUntil').value;
+  const filename = `${brandName}_${objName}${platName}_${since}_${until}.xlsx`;
+
+  XLSX.writeFile(wb, filename);
 }
 
 // ── Load ─────────────────────────────────────────────────

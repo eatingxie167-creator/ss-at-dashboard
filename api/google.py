@@ -1,7 +1,7 @@
 """Vercel serverless function: proxy Google Ads API for the dashboard.
 
 GET /api/google?brand=samsonite|american_tourister&since=YYYY-MM-DD&until=YYYY-MM-DD
-Returns: { "rows": [ {date, campaign_name, cost, clicks, conversions, conversions_value}, ... ] }
+Returns: { "rows": [ {date, campaign_name, cost, clicks, impressions, conversions, conversions_value}, ... ] }
 
 Secrets are read from environment variables (set them in the Vercel dashboard):
   GOOGLE_CLIENT_ID
@@ -47,7 +47,7 @@ def query_ads(brand, since, until):
     token = get_access_token()
     query = (
         "SELECT segments.date, campaign.name, metrics.cost_micros, "
-        "metrics.clicks, metrics.conversions, metrics.conversions_value "
+        "metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value "
         "FROM campaign "
         f"WHERE segments.date BETWEEN '{since}' AND '{until}'"
     )
@@ -72,6 +72,7 @@ def query_ads(brand, since, until):
                 "campaign_name": res.get("campaign", {}).get("name"),
                 "cost": int(m.get("costMicros", 0)) / 1e6,
                 "clicks": int(m.get("clicks", 0)),
+                "impressions": int(m.get("impressions", 0)),
                 "conversions": float(m.get("conversions", 0)),
                 "conversions_value": float(m.get("conversionsValue", 0)),
             })
