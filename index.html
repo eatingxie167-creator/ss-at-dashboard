@@ -1493,6 +1493,7 @@ function renderAdTable(data) {
 // ── Excel export (cards + tables, excludes chart) ────────
 function downloadExcel() {
   if (typeof XLSX === 'undefined') { alert('Excel 匯出元件載入失敗，請重新整理再試'); return; }
+  if (_loadingData) { alert('資料還在載入中，請稍等載入完成後再下載'); return; }
 
   const wb = XLSX.utils.book_new();
 
@@ -1541,7 +1542,13 @@ function showLoading(id) {
   document.getElementById(id).innerHTML='<div class="loading"><div class="spinner"></div> 載入中...</div>';
 }
 
+let _loadingData = false;
+
 async function loadAll() {
+  _loadingData = true;
+  const dlBtn = document.getElementById('downloadBtn');
+  if (dlBtn) dlBtn.disabled = true;
+
   updatePlatformBadge();
   updateSectionVisibility();
   showLoading('dailyTable');
@@ -1630,6 +1637,9 @@ async function loadAll() {
   } catch(e) {
     ['dailyTable','campaignTable'].forEach(id=>showError(id,'載入失敗：'+e.message));
     document.getElementById('summaryCards').innerHTML='<div class="error-msg" style="grid-column:1/-1">⚠️ 載入失敗</div>';
+  } finally {
+    _loadingData = false;
+    if (dlBtn) dlBtn.disabled = false;
   }
 }
 
