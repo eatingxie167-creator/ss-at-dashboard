@@ -387,6 +387,13 @@ tr:hover td { background: #fafafa; }
   display: flex; align-items: center; justify-content: center;
   color: #bbb; font-size: 15px;
 }
+.ad-status-cell { white-space: nowrap; font-size: 12.5px; color: #555; }
+.status-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 6px; vertical-align: middle;
+}
+.status-dot.status-active { background: #2ecc71; }
+.status-dot.status-paused { background: #bbb; }
 .lightbox {
   display: none; position: fixed; inset: 0; z-index: 9999;
   background: rgba(0,0,0,.78); align-items: center; justify-content: center;
@@ -553,7 +560,12 @@ tr:hover td { background: #fafafa; }
 
     <!-- Ad / 素材 -->
     <div class="section-gap" id="adSection">
-      <div class="section-label">素材（Ad）拆分</div>
+      <div class="section-label">素材（Ad）拆分
+        <div class="ms-wrap" id="adMs">
+          <button type="button" class="ms-toggle" id="adMsToggle" onclick="toggleAdMs(event)">全部活動</button>
+          <div class="ms-panel" id="adMsPanel"></div>
+        </div>
+      </div>
       <div class="table-section">
         <div class="table-inner" id="adTable">
           <div class="loading"><div class="spinner"></div> 載入中...</div>
@@ -1362,6 +1374,8 @@ function toggleAdsetMs(e){
 document.addEventListener('click', e=>{
   const w=document.getElementById('adsetMs');
   if(w && !w.contains(e.target)) document.getElementById('adsetMsPanel')?.classList.remove('open');
+  const w2=document.getElementById('adMs');
+  if(w2 && !w2.contains(e.target)) document.getElementById('adMsPanel')?.classList.remove('open');
 });
 
 function onAdsetMsAll(cb){
@@ -1392,12 +1406,18 @@ function drawAdsetTable() {
   const compFn = isEc ? computeEcTotals : computeTotals;
   const groups = _groupBy(data,'adset_name','adset_name',compFn);
   const totals = compFn(groups);
-  const rows   = groups.map(g=>buildRow(g.name,g,cols)).join('');
-  document.getElementById('adsetTable').innerHTML = buildTable(rows,totals,'受眾名稱',cols);
+  const header = `<tr><th style="text-align:left">受眾名稱</th><th>投遞狀態</th>${cols.map(k=>`<th>${COL_LABEL[k]}</th>`).join('')}</tr>`;
+  const totalRow = `<tr class="total-row"><td>合計 / 均值</td><td></td>${cols.map(k=>`<td>${fmt[k](totals[k])}</td>`).join('')}</tr>`;
+  const rows = groups.map(g => `<tr><td>${_escapeHtml(g.name)}</td>${_statusCell(_adsetStatusMap, g.name)}${cols.map(k=>`<td>${fmt[k](g[k])}</td>`).join('')}</tr>`).join('');
+  document.getElementById('adsetTable').innerHTML = `<table><thead>${header}</thead><tbody>${totalRow}${rows}</tbody></table>`;
 }
 
 // Map of ad_name → { thumb, full } for the current view. Populated by fetchAdCreatives().
 let _adImageMap = {};
+// Map of ad_name → boolean (true if ANY underlying ad_id sharing this name is effective_status=ACTIVE).
+let _adStatusMap = {};
+// Map of adset_name → boolean (true if ANY underlying adset_id sharing this name is really delivering).
+let _adsetStatusMap = {};
 
 function _escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1415,45 +1435,116 @@ function _extractCreativeImg(cr) {
   return (thumb || full) ? { thumb, full: full || thumb } : null;
 }
 
-// Fetch creative thumbnails for a SPECIFIC set of ad IDs (only those shown in the table),
-// batched 50 per request. Keyed by ad name. Fully defensive: failures return {}.
+// effective_status===ACTIVE alone is NOT enough: Meta doesn't auto-flip effective_status
+// when an adset/campaign's scheduled end time passes — it just silently stops delivering.
+// So an ad only truly counts as "delivering" if it's ACTIVE *and* its adset end_time (if any)
+// and campaign stop_time (if any) haven't passed yet.
+function _isReallyDelivering(ad) {
+  if (ad.effective_status !== 'ACTIVE') return false;
+  const now = Date.now();
+  const adsetEnd = ad.adset?.end_time    ? new Date(ad.adset.end_time).getTime()    : null;
+  const campEnd  = ad.campaign?.stop_time ? new Date(ad.campaign.stop_time).getTime() : null;
+  if (adsetEnd !== null && !Number.isNaN(adsetEnd) && adsetEnd <= now) return false;
+  if (campEnd  !== null && !Number.isNaN(campEnd)  && campEnd  <= now) return false;
+  return true;
+}
+
+// Fetch creative thumbnails + delivery status for a SPECIFIC set of ad IDs (only those
+// shown in the table), batched 50 per request. Keyed by ad name. Fully defensive: failures
+// return empty maps. A creative "name" can map to multiple ad_ids (same material used in
+// several ad sets/campaigns) — activeByName is true if ANY of them is really delivering.
 async function fetchAdCreativesByIds(ids) {
+  const images = {};
+  const activeByName = {};
   try {
-    const map = {};
     for (let i = 0; i < ids.length; i += 50) {
       const chunk = ids.slice(i, i + 50);
       const params = new URLSearchParams({
         access_token: ACCESS_TOKEN,
         ids: chunk.join(','),
-        fields: 'name,creative{thumbnail_url,image_url,object_story_spec}',
+        fields: 'name,effective_status,creative{thumbnail_url,image_url,object_story_spec},adset{end_time},campaign{stop_time}',
       });
       const resp = await fetch(`${GRAPH_URL}/?${params}`);
       const json = await resp.json();
       if (json.error) continue;
       Object.values(json).forEach(ad => {
-        if (!ad || !ad.name || map[ad.name]) return;   // first one wins per name
-        const img = _extractCreativeImg(ad.creative);
-        if (img) map[ad.name] = img;
+        if (!ad || !ad.name) return;
+        if (!images[ad.name]) {
+          const img = _extractCreativeImg(ad.creative);
+          if (img) images[ad.name] = img;
+        }
+        if (_isReallyDelivering(ad)) activeByName[ad.name] = true;
+        else if (!(ad.name in activeByName)) activeByName[ad.name] = false;
       });
     }
-    return map;
-  } catch (e) {
-    return {};
-  }
+  } catch (e) { /* best-effort */ }
+  return { images, activeByName };
 }
 
-// Non-blocking: load thumbnails for the ads currently in the table, then re-render.
-// Aborts silently if the view changed (token mismatch) or nothing was found.
+// Non-blocking: load thumbnails + delivery status for the ads currently in the table, then
+// re-render. Aborts silently if the view changed (token mismatch) or nothing was found.
 async function loadAdThumbs(adData, token) {
   try {
     const ids = [...new Set((adData || []).map(r => r.ad_id).filter(Boolean))];
     if (!ids.length) return;
-    const map = await fetchAdCreativesByIds(ids);
-    if (token !== _adThumbToken) return;              // user switched view — drop stale result
-    if (!map || !Object.keys(map).length) return;     // nothing to show — leave placeholders
-    _adImageMap = map;
-    renderAdTable(adData);
-  } catch (e) { /* thumbnails are best-effort; never break the table */ }
+    const { images, activeByName } = await fetchAdCreativesByIds(ids);
+    if (token !== _adThumbToken) return;               // user switched view — drop stale result
+    let changed = false;
+    if (images && Object.keys(images).length)      { _adImageMap  = images;      changed = true; }
+    if (activeByName && Object.keys(activeByName).length) { _adStatusMap = activeByName; changed = true; }
+    if (changed) drawAdTable();
+  } catch (e) { /* thumbnails/status are best-effort; never break the table */ }
+}
+
+// Same "really delivering" logic as ads, but for adsets directly: an adset's own end_time,
+// plus its campaign's stop_time, must not have already passed.
+function _isReallyDeliveringAdset(as) {
+  if (as.effective_status !== 'ACTIVE') return false;
+  const now = Date.now();
+  const end     = as.end_time            ? new Date(as.end_time).getTime()            : null;
+  const campEnd = as.campaign?.stop_time ? new Date(as.campaign.stop_time).getTime() : null;
+  if (end     !== null && !Number.isNaN(end)     && end     <= now) return false;
+  if (campEnd !== null && !Number.isNaN(campEnd) && campEnd <= now) return false;
+  return true;
+}
+
+// Fetch delivery status for a specific set of adset IDs, batched 50 per request, keyed by
+// adset name (a name can map to multiple adset_ids across campaigns — OR logic, same as ads).
+async function fetchAdsetStatusByIds(ids) {
+  const activeByName = {};
+  try {
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      const params = new URLSearchParams({
+        access_token: ACCESS_TOKEN,
+        ids: chunk.join(','),
+        fields: 'name,effective_status,end_time,campaign{stop_time}',
+      });
+      const resp = await fetch(`${GRAPH_URL}/?${params}`);
+      const json = await resp.json();
+      if (json.error) continue;
+      Object.values(json).forEach(as => {
+        if (!as || !as.name) return;
+        if (_isReallyDeliveringAdset(as)) activeByName[as.name] = true;
+        else if (!(as.name in activeByName)) activeByName[as.name] = false;
+      });
+    }
+  } catch (e) { /* best-effort */ }
+  return activeByName;
+}
+
+// Non-blocking: load delivery status for the adsets currently in the table, then re-render.
+async function loadAdsetStatus(adsetData, token) {
+  try {
+    const ids = [...new Set((adsetData || []).map(r => r.adset_id).filter(Boolean))];
+    if (!ids.length) return;
+    const activeByName = await fetchAdsetStatusByIds(ids);
+    if (token !== _adThumbToken) return;
+    if (activeByName && Object.keys(activeByName).length) {
+      _adsetStatusMap = activeByName;
+      drawAdsetTable();
+    }
+  } catch (e) { /* delivery status is best-effort; never break the table */ }
 }
 
 function _adNameCell(name) {
@@ -1480,14 +1571,77 @@ function closeLightbox() {
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
 
+function _statusCell(map, name) {
+  const active = map[name];
+  if (active === undefined) return `<td class="ad-status-cell">—</td>`;
+  return active
+    ? `<td class="ad-status-cell"><span class="status-dot status-active"></span>投遞中</td>`
+    : `<td class="ad-status-cell"><span class="status-dot status-paused"></span>已暫停</td>`;
+}
+
+let _adRawData = [];
+let _adSelected = new Set();   // empty = 全部
+let _adCampNames = [];
+
 function renderAdTable(data) {
+  _adRawData = data || [];
+  populateAdCampaignFilter();
+  drawAdTable();
+}
+
+function populateAdCampaignFilter() {
+  const panel = document.getElementById('adMsPanel');
+  const wrap  = document.getElementById('adMs');
+  if (!panel) return;
+  _adCampNames = [...new Set(_adRawData.map(r=>r.campaign_name).filter(Boolean))].sort();
+  _adSelected = new Set([..._adSelected].filter(n=>_adCampNames.includes(n)));
+  wrap.style.display = _adCampNames.length ? '' : 'none';
+  const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  panel.innerHTML =
+    `<label class="ms-opt ms-all"><input type="checkbox" id="adMsAll" onchange="onAdMsAll(this)"> 全部活動</label>` +
+    _adCampNames.map(n=>
+      `<label class="ms-opt"><input type="checkbox" class="adMsChk" value="${esc(n)}" onchange="onAdMsChange()"> ${esc(n)}</label>`
+    ).join('');
+  syncAdMsUI();
+}
+
+function toggleAdMs(e){
+  e.stopPropagation();
+  document.getElementById('adMsPanel').classList.toggle('open');
+}
+
+function onAdMsAll(cb){
+  if(cb.checked){ _adSelected.clear(); }
+  syncAdMsUI(); drawAdTable();
+}
+function onAdMsChange(){
+  _adSelected = new Set(
+    [...document.querySelectorAll('.adMsChk')].filter(c=>c.checked).map(c=>c.value)
+  );
+  syncAdMsUI(); drawAdTable();
+}
+function syncAdMsUI(){
+  const all=_adSelected.size===0;
+  document.querySelectorAll('.adMsChk').forEach(c=>{ c.checked=_adSelected.has(c.value); });
+  const allBox=document.getElementById('adMsAll'); if(allBox) allBox.checked=all;
+  const btn=document.getElementById('adMsToggle');
+  if(btn) btn.textContent = all ? '全部活動'
+    : (_adSelected.size===1 ? [..._adSelected][0] : `已選 ${_adSelected.size} 個活動`);
+}
+
+function drawAdTable() {
+  const data = _adSelected.size
+    ? _adRawData.filter(r=>_adSelected.has(r.campaign_name))
+    : _adRawData;
   const isEc   = currentObjective === 'ec';
   const cols   = isEc ? getEcCols() : ALL_COLS;
   const compFn = isEc ? computeEcTotals : computeTotals;
   const groups = _groupBy(data,'ad_name','ad_name',compFn);
   const totals = compFn(groups);
-  const rows   = groups.map(g=>buildRow(_adNameCell(g.name),g,cols)).join('');
-  document.getElementById('adTable').innerHTML = buildTable(rows,totals,'素材名稱',cols);
+  const header = `<tr><th style="text-align:left">素材名稱</th><th>投遞狀態</th>${cols.map(k=>`<th>${COL_LABEL[k]}</th>`).join('')}</tr>`;
+  const totalRow = `<tr class="total-row"><td>合計 / 均值</td><td></td>${cols.map(k=>`<td>${fmt[k](totals[k])}</td>`).join('')}</tr>`;
+  const rows = groups.map(g => `<tr><td>${_adNameCell(g.name)}</td>${_statusCell(_adStatusMap, g.name)}${cols.map(k=>`<td>${fmt[k](g[k])}</td>`).join('')}</tr>`).join('');
+  document.getElementById('adTable').innerHTML = `<table><thead>${header}</thead><tbody>${totalRow}${rows}</tbody></table>`;
 }
 
 // ── Excel export (cards + tables, excludes chart) ────────
@@ -1563,9 +1717,11 @@ async function loadAll() {
   const showAdTables = !isEc || currentPlatform === 'meta';
   if (showAdTables) { showLoading('adsetTable'); showLoading('adTable'); }
 
-  // New view: invalidate any in-flight thumbnail loads and clear stale images.
+  // New view: invalidate any in-flight thumbnail loads and clear stale images/status.
   const thumbToken = ++_adThumbToken;
   _adImageMap = {};
+  _adStatusMap = {};
+  _adsetStatusMap = {};
 
   try {
     if (isEc) {
@@ -1575,6 +1731,7 @@ async function loadAll() {
         fetchInsights('campaign'),
         fetchGoogleData().catch(()=>({ daily:[], campaigns:[] })),
       ]);
+      if (thumbToken !== _adThumbToken) return; // a newer view has since been requested — drop stale results
 
       if (metaDaily.error) { showError('dailyTable', metaDaily.error.message); return; }
       _metaDailyData   = processEcData(metaDaily);
@@ -1608,9 +1765,11 @@ async function loadAll() {
       // Adset / Ad (META only)
       if (showAdTables) {
         const metaAdset = await fetchInsights('adset');
+        if (thumbToken !== _adThumbToken) return; // stale — a newer view has since started loading
         const procAdset = !metaAdset.error ? processEcData(metaAdset) : null;
-        if (procAdset) renderAdsetTable(procAdset); else showError('adsetTable', metaAdset.error?.message||'');
+        if (procAdset) { renderAdsetTable(procAdset); loadAdsetStatus(procAdset, thumbToken); } else showError('adsetTable', metaAdset.error?.message||'');
         const ad = await fetchInsights('ad');
+        if (thumbToken !== _adThumbToken) return; // stale — a newer view has since started loading
         const procAd = !ad.error ? processEcData(ad) : null;
         if (procAd) { renderAdTable(procAd); loadAdThumbs(procAd, thumbToken); }
         else showError('adTable', ad.error?.message||'');
@@ -1624,22 +1783,31 @@ async function loadAll() {
         fetchInsights('campaign'),
         fetchInsights('adset'),
       ]);
+      if (thumbToken !== _adThumbToken) return; // stale — a newer view has since started loading
       if (daily.error) { showError('dailyTable', daily.error.message); return; }
       renderCards(daily);
       renderChart(daily);
       renderDailyTable(daily);
       if (!campaign.error) renderCampaignTable(campaign); else showError('campaignTable', campaign.error.message);
-      if (!adset.error)    renderAdsetTable(adset);    else showError('adsetTable',   adset.error.message);
+      if (!adset.error)    { renderAdsetTable(adset); loadAdsetStatus(adset, thumbToken); } else showError('adsetTable',   adset.error.message);
       const ad = await fetchInsights('ad');
+      if (thumbToken !== _adThumbToken) return; // stale — a newer view has since started loading
       if (!ad.error) { renderAdTable(ad); loadAdThumbs(ad, thumbToken); }
       else showError('adTable', ad.error.message);
     }
   } catch(e) {
-    ['dailyTable','campaignTable'].forEach(id=>showError(id,'載入失敗：'+e.message));
-    document.getElementById('summaryCards').innerHTML='<div class="error-msg" style="grid-column:1/-1">⚠️ 載入失敗</div>';
+    if (thumbToken === _adThumbToken) {
+      ['dailyTable','campaignTable'].forEach(id=>showError(id,'載入失敗：'+e.message));
+      document.getElementById('summaryCards').innerHTML='<div class="error-msg" style="grid-column:1/-1">⚠️ 載入失敗</div>';
+    }
   } finally {
-    _loadingData = false;
-    if (dlBtn) dlBtn.disabled = false;
+    // Only the most recent loadAll() call should touch the shared loading flag/button —
+    // otherwise a stale call finishing late could re-enable the download button while a
+    // newer view is still mid-load.
+    if (thumbToken === _adThumbToken) {
+      _loadingData = false;
+      if (dlBtn) dlBtn.disabled = false;
+    }
   }
 }
 
