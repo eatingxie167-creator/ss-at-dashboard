@@ -676,14 +676,66 @@ const TAIWAN_REGIONS = new Set([
 function buildDateColMap(rows) {
   const monthRow = rows[0] || [], dayRow = rows[1] || [];
   const colDate = {};
+
+  // 1. 優先用月份文字（表頭若真的寫 June/July/Aug...）
   let curMonth = null;
+  let usedTextMonth = false;
   for (let c = 0; c < Math.max(monthRow.length, dayRow.length); c++) {
     const m = (monthRow[c] || '').trim();
-    if (m && MONTH_MAP[m] !== undefined) curMonth = MONTH_MAP[m];
+    if (m && MONTH_MAP[m] !== undefined) { curMonth = MONTH_MAP[m]; usedTextMonth = true; }
     const d = (dayRow[c] || '').trim();
     if (d && /^\d+$/.test(d) && curMonth !== null)
       colDate[c] = new Date(CFG.year, curMonth, parseInt(d));
   }
+  if (usedTextMonth && Object.keys(colDate).length > 0) return colDate;
+
+  // 2. 表頭沒有月份文字（例如第一列被改成「UPDATE / 727」之類的備註，導致完全抓不到月份）
+  //    改用「日期數字序列」自動推斷：數字從大跳回 1 代表換月，切成連續區段，
+  //    再用「非最後一段的最大日必須等於該月實際天數」+「今天的真實月份要能對上某一段」
+  //    這兩個條件反推出每一段對應的月份，不再依賴表頭文字。
+  const segments = [];
+  let prevDay = -1;
+  for (let c = 0; c < dayRow.length; c++) {
+    const d = (dayRow[c] || '').trim();
+    if (!/^\d+$/.test(d)) continue;
+    const day = parseInt(d);
+    if (segments.length === 0 || day < prevDay) segments.push({ cols: [], days: [] });
+    segments[segments.length - 1].cols.push(c);
+    segments[segments.length - 1].days.push(day);
+    prevDay = day;
+  }
+  if (segments.length === 0) return colDate;
+
+  const daysInMonth = (year, monthIdx) => new Date(year, monthIdx + 1, 0).getDate();
+  const today = new Date();
+
+  let best = null;
+  for (let startMonth = 0; startMonth < 12 && !best; startMonth++) {
+    let ok = true;
+    const months = [];
+    for (let i = 0; i < segments.length; i++) {
+      const mi = (startMonth + i) % 12;
+      months.push(mi);
+      const maxDay = Math.max(...segments[i].days);
+      const isLast = i === segments.length - 1;
+      if (!isLast && maxDay !== daysInMonth(CFG.year, mi)) { ok = false; break; }
+    }
+    if (!ok) continue;
+    const todayIdx = months.findIndex((mi, i) => mi === today.getMonth() && segments[i].days.includes(today.getDate()));
+    if (todayIdx >= 0) best = months;
+  }
+
+  if (!best) {
+    // 兜底：假設含「今天日期」的那一段就是本月，往前後推算
+    const anchorIdx = segments.findIndex(seg => seg.days.includes(today.getDate()));
+    const base = anchorIdx >= 0 ? today.getMonth() - anchorIdx : today.getMonth();
+    best = segments.map((_, i) => ((base + i) % 12 + 12) % 12);
+  }
+
+  segments.forEach((seg, i) => {
+    seg.cols.forEach((c, j) => { colDate[c] = new Date(CFG.year, best[i], seg.days[j]); });
+  });
+
   return colDate;
 }
 
