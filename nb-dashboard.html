@@ -1139,8 +1139,9 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
       const plannedGenderLabel = !hasGenderSplit ? '<span class="badge-na">全</span>' : (genderRatio
         ? `<span class="gender-chip f">女${Math.round(genderRatio.female*10)}</span><span class="gender-chip m">男${Math.round(genderRatio.male*10)}</span>`
         : `<span class="gender-chip f">女</span><span class="gender-chip m">男</span>`);
-      const actualGenderRatioLabel = hasGenderSplit && actual > 0
-        ? `<span class="gender-chip f">女${Math.round(fActual/actual*10)}</span><span class="gender-chip m">男${Math.round(mActual/actual*10)}</span>`
+      const gfActual = fActual + mActual;
+      const actualGenderRatioLabel = hasGenderSplit && gfActual > 0
+        ? `<span class="gender-chip f">女${Math.round(fActual/gfActual*10)}</span><span class="gender-chip m">男${Math.round(mActual/gfActual*10)}</span>`
         : '<span class="badge-na">—</span>';
       const campNamesLabel = presentCamps.map(c => campNameCell(c)).join('<br>');
 
