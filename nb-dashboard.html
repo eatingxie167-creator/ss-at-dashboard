@@ -1172,8 +1172,6 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
       const flightEnd = ends.length ? new Date(Math.max(...ends.map(d => d.getTime()))) : null;
 
       const prog = flightStart ? calcProgress(planRow, flightStart, flightEnd, null, null) : null;
-      const fActual = fCamps.reduce((s, c) => s + (metaData.spendMap[c.name] || 0), 0);
-      const mActual = mCamps.reduce((s, c) => s + (metaData.spendMap[c.name] || 0), 0);
       const actual = presentCamps.reduce((s, c) => s + (metaData.spendMap[c.name] || 0), 0);
       const started = flightStart && today >= flightStart;
 
@@ -1191,9 +1189,15 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
       const plannedGenderLabel = !hasGenderSplit ? '<span class="badge-na">全</span>' : (genderRatio
         ? `<span class="gender-chip f">女${Math.round(genderRatio.female*10)}</span><span class="gender-chip m">男${Math.round(genderRatio.male*10)}</span>`
         : `<span class="gender-chip f">女</span><span class="gender-chip m">男</span>`);
-      const gfActual = fActual + mActual;
-      const actualGenderRatioLabel = hasGenderSplit && gfActual > 0
-        ? `<span class="gender-chip f">女${Math.round(fActual/gfActual*10)}</span><span class="gender-chip m">男${Math.round(mActual/gfActual*10)}</span>`
+      // 男女花費比例：抓 Meta 實際投遞的性別 breakdown（非用活動名稱M/F標籤 100% 歸類）
+      const genderBreakdown = presentCamps.reduce((acc, c) => {
+        const g = metaData.genderMap[c.name];
+        if (g) { acc.male += g.male; acc.female += g.female; }
+        return acc;
+      }, { male: 0, female: 0 });
+      const gfActual = genderBreakdown.male + genderBreakdown.female;
+      const actualGenderRatioLabel = gfActual > 0
+        ? `<span class="gender-chip f">女${Math.round(genderBreakdown.female/gfActual*10)}</span><span class="gender-chip m">男${Math.round(genderBreakdown.male/gfActual*10)}</span>`
         : '<span class="badge-na">—</span>';
       const campNamesLabel = presentCamps.map(c => campNameCell(c)).join('<br>');
 
