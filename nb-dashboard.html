@@ -201,7 +201,6 @@ tr:last-child td { border-bottom: none; }
             <th rowspan="2">目標</th>
             <th rowspan="2">走期</th>
             <th rowspan="2">計畫<br>總預算</th>
-            <th rowspan="2">性別</th>
             <th rowspan="2">對應廣告活動</th>
             <th colspan="5" style="text-align:center;background:#fffde7;border-bottom:1px solid #eee;">💰 花費進度</th>
             <th colspan="2" style="text-align:center;background:#fce4ec;border-bottom:1px solid #eee;">⚧ 性別</th>
@@ -213,15 +212,15 @@ tr:last-child td { border-bottom: none; }
             <th style="background:#fffde7">累積上限<br><span style="font-weight:400;color:#999">（含今日）</span></th>
             <th style="background:#fffde7">實際花費</th>
             <th style="background:#fffde7">進度</th>
-            <th class="col-sep" style="background:#fce4ec">性別</th>
-            <th style="background:#fce4ec">性別狀態</th>
+            <th class="col-sep" style="background:#fce4ec">計畫性別</th>
+            <th style="background:#fce4ec">男女花費比例</th>
             <th class="col-sep" style="background:#e8f5e9">計畫年齡</th>
             <th style="background:#e8f5e9">範圍外花費</th>
             <th style="background:#e8f5e9">年齡狀態</th>
           </tr>
         </thead>
         <tbody id="main-tbody">
-          <tr class="loading-row"><td colspan="16"><span class="spinner"></span>載入中...</td></tr>
+          <tr class="loading-row"><td colspan="15"><span class="spinner"></span>載入中...</td></tr>
         </tbody>
       </table>
     </div>
@@ -1080,19 +1079,6 @@ function ageStatusIcon(ageOk, hasRange) {
   return ageOk ? `<span class="badge-ok">✅</span>` : `<span class="red-x">✕</span>`;
 }
 
-function genderStatusCell(gData, expectedGender) {
-  if (!gData) return { check: '<span class="badge-na">—</span>', status: '<span class="badge-na">—</span>' };
-  const total = gData.male + gData.female + gData.unknown;
-  if (total === 0) return { check: '<span class="badge-na">—</span>', status: '<span class="badge-na">—</span>' };
-  const malePct = gData.male / total, femalePct = gData.female / total;
-  const leakage = expectedGender === 'F' ? malePct : (expectedGender === 'M' ? femalePct : 0);
-  if (leakage < 0.01) return { check: `<span class="badge-ok">✅ 正常</span>`, status: '<span class="num-muted">—</span>' };
-  return {
-    check: `<span class="red-x">✕ 異常</span>`,
-    status: `<span class="num-err">男 ${pct(malePct)} 女 ${pct(femalePct)}</span>`
-  };
-}
-
 function campNameCell(camp) {
   if (!camp) return `<span class="badge-notfound">❌ 未找到</span>`;
   const prefix = CFG.campaignPrefix + '_FBP_';
@@ -1127,67 +1113,56 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
 
     if (mCamp || fCamp) {
       const gRatio = genderRatio || null;
-      const fStartDate = fCamp?.startDate || mCamp?.startDate;
-      const fEndDate = fCamp?.endDate || mCamp?.endDate;
-      const mStartDate = mCamp?.startDate || fCamp?.startDate;
-      const mEndDate = mCamp?.endDate || fCamp?.endDate;
+      const presentCamps = [fCamp, mCamp].filter(Boolean);
+      const starts = presentCamps.map(c => c.startDate).filter(Boolean);
+      const ends = presentCamps.map(c => c.endDate).filter(Boolean);
+      const flightStart = starts.length ? new Date(Math.min(...starts.map(d => d.getTime()))) : null;
+      const flightEnd = ends.length ? new Date(Math.max(...ends.map(d => d.getTime()))) : null;
 
-      const fProg = fStartDate ? calcProgress(planRow, fStartDate, fEndDate, gRatio, 'F') : null;
-      const mProg = mStartDate ? calcProgress(planRow, mStartDate, mEndDate, gRatio, 'M') : null;
+      const prog = flightStart ? calcProgress(planRow, flightStart, flightEnd, null, null) : null;
       const fActual = metaData.spendMap[fCamp?.name] || 0;
       const mActual = metaData.spendMap[mCamp?.name] || 0;
-      const fStarted = fStartDate && today >= fStartDate;
-      const mStarted = mStartDate && today >= mStartDate;
+      const actual = fActual + mActual;
+      const started = flightStart && today >= flightStart;
 
-      const fGC = genderStatusCell(metaData.genderMap[fCamp?.name], 'F');
-      const mGC = genderStatusCell(metaData.genderMap[mCamp?.name], 'M');
-
-      const ageCampNames = [fCamp?.name, mCamp?.name].filter(Boolean);
+      const ageCampNames = presentCamps.map(c => c.name);
       const { outSpend: ageOut } = calcAgeOutOfRange(ageCampNames, metaData.ageMap, ageRange);
-      const ageOk = ageOut < (fActual + mActual) * 0.02;
+      const ageOk = ageOut < actual * 0.02;
 
-      const walkStart = fStartDate || mStartDate;
-      const walkEnd = fEndDate || mEndDate;
-      const dateOk = planRange && walkStart && walkEnd
-        ? datesMatch(walkStart, planRange.start) && datesMatch(walkEnd, planRange.end) : true;
-      const fBOk = !fCamp?.campBudget || Math.abs(fCamp.campBudget - planRow.totalBudget) <= planRow.totalBudget * 0.01;
-      const mBOk = !mCamp?.campBudget || Math.abs(mCamp.campBudget - planRow.totalBudget) <= planRow.totalBudget * 0.01;
+      const dateOk = planRange && presentCamps.length
+        ? presentCamps.every(c => datesMatch(c.startDate, planRange.start) && datesMatch(c.endDate, planRange.end)) : true;
+      const budgetOk = presentCamps.every(c => !c.campBudget || Math.abs(c.campBudget - planRow.totalBudget) <= planRow.totalBudget * 0.01);
 
       const ageRangeText = ageRange ? `<span class="age-range-text">${ageRange.min}-${ageRange.max}</span>` : '<span class="badge-na">—</span>';
       const ageOutLabel = `<span class="${ageOut > 0 ? 'num-err':'num-muted'}">${fmt(ageOut)}</span>`;
 
-      if (fStarted) { (fActual >= (fProg?.lower||0)-100 && fActual <= (fProg?.upper||0)+100) ? okCount++ : warnCount++; }
-      else pendingCount++;
-      if (mStarted) { (mActual >= (mProg?.lower||0)-100 && mActual <= (mProg?.upper||0)+100) ? okCount++ : warnCount++; }
+      const plannedGenderLabel = gRatio
+        ? `<span class="gender-chip f">女${Math.round(gRatio.female*10)}</span><span class="gender-chip m">男${Math.round(gRatio.male*10)}</span>`
+        : `<span class="gender-chip f">女</span><span class="gender-chip m">男</span>`;
+      const actualGenderRatioLabel = actual > 0
+        ? `<span class="gender-chip f">女${Math.round(fActual/actual*10)}</span><span class="gender-chip m">男${Math.round(mActual/actual*10)}</span>`
+        : '<span class="badge-na">—</span>';
+      const campNamesLabel = presentCamps.map(c => campNameCell(c)).join('<br>');
 
-      rows.push(`<tr class="mf-first-row row-hover">
-        <td rowspan="2"><div class="material-cell">${matLabel}</div>${taLabel}</td>
-        <td rowspan="2">${planRow.note}</td>
-        <td rowspan="2" ${!dateOk?'class="text-red"':''}>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
-        <td rowspan="2" class="num${!fBOk||!mBOk?' text-red':''}">${fmt(planRow.totalBudget)}</td>
-        <td class="gender-cell"><span class="gender-chip f">女${gRatio?` ${Math.round(gRatio.female*10)}`:''}</span></td>
-        <td>${campNameCell(fCamp)}</td>
-        <td class="num col-sep">${fProg?fmt(fProg.todayAmt):'—'}</td>
-        <td class="num">${fProg?fmt(fProg.lower):'—'}</td>
-        <td class="num">${fProg?fmt(fProg.upper):'—'}</td>
-        <td class="num ${fActual>0?'num-ok':''}">${fmt(fActual)}</td>
-        <td>${fProg?progressBar(fActual,fProg.lower,fProg.upper,fProg.total,fStarted):'—'}</td>
-        <td class="col-sep">${fGC.check}</td>
-        <td>${fGC.status}</td>
-        <td class="col-sep" rowspan="2">${ageRangeText}</td>
-        <td rowspan="2">${ageOutLabel}</td>
-        <td rowspan="2">${ageStatusIcon(ageOk,!!ageRange)}</td>
-      </tr>`);
-      rows.push(`<tr class="mf-second-row row-hover">
-        <td class="gender-cell"><span class="gender-chip m">男${gRatio?` ${Math.round(gRatio.male*10)}`:''}</span></td>
-        <td>${campNameCell(mCamp)}</td>
-        <td class="num col-sep">${mProg?fmt(mProg.todayAmt):'—'}</td>
-        <td class="num">${mProg?fmt(mProg.lower):'—'}</td>
-        <td class="num">${mProg?fmt(mProg.upper):'—'}</td>
-        <td class="num ${mActual>0?'num-ok':''}">${fmt(mActual)}</td>
-        <td>${mProg?progressBar(mActual,mProg.lower,mProg.upper,mProg.total,mStarted):'—'}</td>
-        <td class="col-sep">${mGC.check}</td>
-        <td>${mGC.status}</td>
+      if (started) { (actual >= (prog?.lower||0)-100 && actual <= (prog?.upper||0)+100) ? okCount++ : warnCount++; }
+      else pendingCount++;
+
+      rows.push(`<tr class="row-hover">
+        <td><div class="material-cell">${matLabel}</div>${taLabel}</td>
+        <td>${planRow.note}</td>
+        <td ${!dateOk?'class="text-red"':''}>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
+        <td class="num${!budgetOk?' text-red':''}">${fmt(planRow.totalBudget)}</td>
+        <td>${campNamesLabel}</td>
+        <td class="num col-sep">${prog?fmt(prog.todayAmt):'—'}</td>
+        <td class="num">${prog?fmt(prog.lower):'—'}</td>
+        <td class="num">${prog?fmt(prog.upper):'—'}</td>
+        <td class="num ${actual>0?'num-ok':''}">${fmt(actual)}</td>
+        <td>${prog?progressBar(actual,prog.lower,prog.upper,prog.total,started):'—'}</td>
+        <td class="col-sep">${plannedGenderLabel}</td>
+        <td>${actualGenderRatioLabel}</td>
+        <td class="col-sep">${ageRangeText}</td>
+        <td>${ageOutLabel}</td>
+        <td>${ageStatusIcon(ageOk,!!ageRange)}</td>
       </tr>`);
 
     } else if (noGenderCamps.length > 0) {
@@ -1209,14 +1184,13 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
           <td>${planRow.note}</td>
           <td ${!dateOk?'class="text-red"':''}>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
           <td class="num${!bOk?' text-red':''}">${fmt(prog.total)}</td>
-          <td><span class="badge-na">全</span></td>
           <td>${campNameCell(camp)}</td>
           <td class="num col-sep">${started?fmt(prog.todayAmt):'<span class="num-muted">—</span>'}</td>
           <td class="num">${fmt(prog.lower)}</td>
           <td class="num">${fmt(prog.upper)}</td>
           <td class="num ${actual>0?'num-ok':''}">${fmt(actual)}</td>
           <td>${progressBar(actual,prog.lower,prog.upper,prog.total,started)}</td>
-          <td class="col-sep"><span class="badge-na">—</span></td>
+          <td class="col-sep"><span class="badge-na">全</span></td>
           <td><span class="badge-na">—</span></td>
           <td class="col-sep">${ageRangeText}</td>
           <td><span class="${ageOut>0?'num-err':'num-muted'}">${fmt(ageOut)}</span></td>
@@ -1231,7 +1205,6 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
         <td>${planRow.note}</td>
         <td>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
         <td class="num">${fmt(planRow.totalBudget)}</td>
-        <td><span class="badge-na">—</span></td>
         <td><span class="badge-notfound">❌ 未找到</span></td>
         <td class="num col-sep num-muted">—</td>
         <td class="num num-muted">—</td>
@@ -1247,7 +1220,7 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
     }
   }
 
-  document.getElementById('main-tbody').innerHTML = rows.join('') || '<tr><td colspan="16" class="no-data">無資料</td></tr>';
+  document.getElementById('main-tbody').innerHTML = rows.join('') || '<tr><td colspan="15" class="no-data">無資料</td></tr>';
   document.getElementById('main-badge').textContent = `✅ ${okCount} 正常 / 🔴 ${warnCount} 異常 / 🔵 ${pendingCount} 未開始 / ❌ ${notFoundCount} 未對應`;
 
   const unmatched = campaigns.filter(c => !matchedCampNames.has(c.name));
@@ -1390,7 +1363,7 @@ function renderRegionTable(planRows, campaigns, regionMap, audience) {
 async function loadDashboard() {
   setStatus('dot-meta', 'loading', '載入資料中...');
   setStatus('dot-sheet', 'loading');
-  document.getElementById('main-tbody').innerHTML = '<tr class="loading-row"><td colspan="16"><span class="spinner"></span>載入中...</td></tr>';
+  document.getElementById('main-tbody').innerHTML = '<tr class="loading-row"><td colspan="15"><span class="spinner"></span>載入中...</td></tr>';
   document.getElementById('region-tbody').innerHTML = '<tr class="loading-row"><td colspan="7"><span class="spinner"></span>載入中...</td></tr>';
   document.getElementById('unmatched-section').style.display = 'none';
 
@@ -1430,7 +1403,7 @@ async function loadDashboard() {
     document.getElementById('last-update').textContent = '更新：' + new Date().toLocaleTimeString('zh-TW');
   } catch (e) {
     setStatus('dot-meta', 'err', '載入失敗：' + e.message);
-    const errRow = `<tr><td colspan="16" style="text-align:center;color:#c00;padding:20px">❌ ${e.message}</td></tr>`;
+    const errRow = `<tr><td colspan="15" style="text-align:center;color:#c00;padding:20px">❌ ${e.message}</td></tr>`;
     document.getElementById('main-tbody').innerHTML = errRow;
     document.getElementById('region-tbody').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#c00;padding:20px">❌ ${e.message}</td></tr>`;
   }
