@@ -68,6 +68,10 @@ td { padding: 9px 10px; border-bottom: 1px solid #f5f5f5; vertical-align: middle
 td:last-child, th:last-child { border-right: none; }
 tr:last-child td { border-bottom: none; }
 .row-hover:hover td { background: #fafafa; }
+.row-finished td { background: #f5f5f5; }
+.row-finished:hover td { background: #eeeeee; }
+.status-running { color: #2e7d32; font-weight: 600; }
+.status-done { color: #999; font-weight: 600; }
 
 .mf-first-row td { border-bottom: none; }
 .mf-second-row td { border-bottom: 1px solid #e0e0e0; }
@@ -197,6 +201,7 @@ tr:last-child td { border-bottom: none; }
       <table id="main-table">
         <thead>
           <tr>
+            <th rowspan="2">執行狀態</th>
             <th rowspan="2">素材 / TA</th>
             <th rowspan="2">目標</th>
             <th rowspan="2">走期</th>
@@ -220,7 +225,7 @@ tr:last-child td { border-bottom: none; }
           </tr>
         </thead>
         <tbody id="main-tbody">
-          <tr class="loading-row"><td colspan="15"><span class="spinner"></span>載入中...</td></tr>
+          <tr class="loading-row"><td colspan="16"><span class="spinner"></span>載入中...</td></tr>
         </tbody>
       </table>
     </div>
@@ -1204,7 +1209,20 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
       if (started) { (actual >= (prog?.lower||0)-100 && actual <= (prog?.upper||0)+100) ? okCount++ : warnCount++; }
       else pendingCount++;
 
-      rows.push(`<tr class="row-hover">
+      // 執行狀態：有活動已開始且尚未結束 → 執行中；全部活動都已過結束日 → 執行完畢（整列淺灰底）
+      const ended = flightEnd && today > flightEnd;
+      let statusLabel, rowCls = 'row-hover';
+      if (started && !ended) {
+        statusLabel = '<span class="status-running">執行中</span>';
+      } else if (ended) {
+        statusLabel = '<span class="status-done">執行完畢</span>';
+        rowCls = 'row-hover row-finished';
+      } else {
+        statusLabel = '<span class="badge-na">未開始</span>';
+      }
+
+      rows.push(`<tr class="${rowCls}">
+        <td>${statusLabel}</td>
         <td><div class="material-cell">${matLabel}</div>${taLabel}</td>
         <td>${planRow.note}</td>
         <td ${!dateOk?'class="text-red"':''}>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
@@ -1226,6 +1244,7 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
       notFoundCount++;
       const ageRangeText = ageRange ? `<span class="age-range-text">${ageRange.min}-${ageRange.max}</span>` : '<span class="badge-na">—</span>';
       rows.push(`<tr class="row-hover">
+        <td><span class="badge-na">—</span></td>
         <td><div class="material-cell">${matLabel}</div>${taLabel}</td>
         <td>${planRow.note}</td>
         <td>${planRange?`${fmtDate(planRange.start)}~${fmtDate(planRange.end)}`:'—'}</td>
@@ -1245,7 +1264,7 @@ function renderMainTable(planRows, campaigns, metaData, audience) {
     }
   }
 
-  document.getElementById('main-tbody').innerHTML = rows.join('') || '<tr><td colspan="15" class="no-data">無資料</td></tr>';
+  document.getElementById('main-tbody').innerHTML = rows.join('') || '<tr><td colspan="16" class="no-data">無資料</td></tr>';
   document.getElementById('main-badge').textContent = `✅ ${okCount} 正常 / 🔴 ${warnCount} 異常 / 🔵 ${pendingCount} 未開始 / ❌ ${notFoundCount} 未對應`;
 
   const unmatched = campaigns.filter(c => !matchedCampNames.has(c.name));
@@ -1388,7 +1407,7 @@ function renderRegionTable(planRows, campaigns, regionMap, audience) {
 async function loadDashboard() {
   setStatus('dot-meta', 'loading', '載入資料中...');
   setStatus('dot-sheet', 'loading');
-  document.getElementById('main-tbody').innerHTML = '<tr class="loading-row"><td colspan="15"><span class="spinner"></span>載入中...</td></tr>';
+  document.getElementById('main-tbody').innerHTML = '<tr class="loading-row"><td colspan="16"><span class="spinner"></span>載入中...</td></tr>';
   document.getElementById('region-tbody').innerHTML = '<tr class="loading-row"><td colspan="7"><span class="spinner"></span>載入中...</td></tr>';
   document.getElementById('unmatched-section').style.display = 'none';
 
@@ -1428,7 +1447,7 @@ async function loadDashboard() {
     document.getElementById('last-update').textContent = '更新：' + new Date().toLocaleTimeString('zh-TW');
   } catch (e) {
     setStatus('dot-meta', 'err', '載入失敗：' + e.message);
-    const errRow = `<tr><td colspan="15" style="text-align:center;color:#c00;padding:20px">❌ ${e.message}</td></tr>`;
+    const errRow = `<tr><td colspan="16" style="text-align:center;color:#c00;padding:20px">❌ ${e.message}</td></tr>`;
     document.getElementById('main-tbody').innerHTML = errRow;
     document.getElementById('region-tbody').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#c00;padding:20px">❌ ${e.message}</td></tr>`;
   }
