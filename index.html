@@ -597,7 +597,7 @@ let _googleDailyData = [];
 
 // Google Ads data now comes DIRECTLY from the accounts via the Vercel API proxy.
 const GOOGLE_API_BASE = 'https://ss-at-dashboard.vercel.app';
-const GOOGLE_COLS = ['spend','impressions','inline_link_clicks','ctr','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
+const GOOGLE_COLS = ['spend','impressions','inline_link_clicks','ctr','cost_per_inline_link_click','add_to_cart','cpatc','purchase_count','purchase_value','cpa','roas'];
 
 // Brand colour palettes
 const PALETTE = {
@@ -822,27 +822,31 @@ async function fetchGoogleData() {
     const imp   = Number(row.impressions || 0);
     const conv  = Number(row.conversions || 0);
     const convV = Number(row.conversions_value || 0);
+    const atc   = Number(row.add_to_cart || 0);
 
     // daily sum across campaigns
-    if (!byDate[date]) byDate[date] = { date_start: date, spend: 0, impressions: 0, inline_link_clicks: 0, purchase_count: 0, purchase_value: 0 };
+    if (!byDate[date]) byDate[date] = { date_start: date, spend: 0, impressions: 0, inline_link_clicks: 0, add_to_cart: 0, purchase_count: 0, purchase_value: 0 };
     byDate[date].spend              += cost;
     byDate[date].impressions        += imp;
     byDate[date].inline_link_clicks += clks;
+    byDate[date].add_to_cart        += atc;
     byDate[date].purchase_count     += conv;
     byDate[date].purchase_value     += convV;
 
     // campaign total
-    if (!byCampaign[cname]) byCampaign[cname] = { campaign_name: cname, spend: 0, impressions: 0, inline_link_clicks: 0, purchase_count: 0, purchase_value: 0 };
+    if (!byCampaign[cname]) byCampaign[cname] = { campaign_name: cname, spend: 0, impressions: 0, inline_link_clicks: 0, add_to_cart: 0, purchase_count: 0, purchase_value: 0 };
     byCampaign[cname].spend              += cost;
     byCampaign[cname].impressions        += imp;
     byCampaign[cname].inline_link_clicks += clks;
+    byCampaign[cname].add_to_cart        += atc;
     byCampaign[cname].purchase_count     += conv;
     byCampaign[cname].purchase_value     += convV;
   });
 
   const finalize = r => {
     const sp = r.spend, lc = r.inline_link_clicks, imp = r.impressions, pc = r.purchase_count, pv = r.purchase_value;
-    return { ...r, add_to_cart: 0, cpatc: 0,
+    const atc = r.add_to_cart || 0;
+    return { ...r, add_to_cart: atc, cpatc: atc > 0 ? sp/atc : 0,
       ctr: imp > 0 ? (lc/imp)*100 : 0,
       cost_per_inline_link_click: lc > 0 ? sp/lc : 0,
       cpa: pc > 0 ? sp/pc : 0,
@@ -862,8 +866,8 @@ function renderGoogleCards(data) {
 function renderGoogleCampaignTable(campaigns) {
   const cols = GOOGLE_COLS;
   const compFn = rows => {
-    const sp=sum(rows,'spend'), lc=sum(rows,'inline_link_clicks'), imp=sum(rows,'impressions'), pc=sum(rows,'purchase_count'), pv=sum(rows,'purchase_value');
-    return { spend:sp, impressions:imp, inline_link_clicks:lc, ctr:imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, add_to_cart:0, cpatc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
+    const sp=sum(rows,'spend'), lc=sum(rows,'inline_link_clicks'), imp=sum(rows,'impressions'), atc=sum(rows,'add_to_cart'), pc=sum(rows,'purchase_count'), pv=sum(rows,'purchase_value');
+    return { spend:sp, impressions:imp, inline_link_clicks:lc, ctr:imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, add_to_cart:atc, cpatc:atc>0?sp/atc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
   };
   const totals = compFn(campaigns);
   const rows = campaigns.map(g => buildRow(g.campaign_name, g, cols)).join('');
@@ -875,16 +879,17 @@ function mergeDaily(metaArr, googleArr) {
   const map = {};
   [...metaArr, ...googleArr].forEach(r => {
     const d = r.date_start;
-    if (!map[d]) map[d] = { date_start: d, spend:0, impressions:0, inline_link_clicks:0, purchase_count:0, purchase_value:0 };
+    if (!map[d]) map[d] = { date_start: d, spend:0, impressions:0, inline_link_clicks:0, add_to_cart:0, purchase_count:0, purchase_value:0 };
     map[d].spend              += Number(r.spend||0);
     map[d].impressions        += Number(r.impressions||0);
     map[d].inline_link_clicks += Number(r.inline_link_clicks||0);
+    map[d].add_to_cart        += Number(r.add_to_cart||0);
     map[d].purchase_count     += Number(r.purchase_count||0);
     map[d].purchase_value     += Number(r.purchase_value||0);
   });
   return Object.values(map).sort((a,b)=>a.date_start.localeCompare(b.date_start)).map(r => {
-    const sp=r.spend, lc=r.inline_link_clicks, imp=r.impressions, pc=r.purchase_count, pv=r.purchase_value;
-    return { ...r, ctr: imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0, add_to_cart:0, cpatc:0 };
+    const sp=r.spend, lc=r.inline_link_clicks, imp=r.impressions, atc=r.add_to_cart, pc=r.purchase_count, pv=r.purchase_value;
+    return { ...r, ctr: imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0, add_to_cart:atc, cpatc:atc>0?sp/atc:0 };
   });
 }
 
@@ -1153,8 +1158,9 @@ function renderMediaChannelTable() {
   // Simpler: recompute combined
   const sp=metaTotals.spend+googleTotals.spend, lc=metaTotals.inline_link_clicks+googleTotals.inline_link_clicks;
   const imp=metaTotals.impressions+googleTotals.impressions;
+  const atc=metaTotals.add_to_cart+googleTotals.add_to_cart;
   const pc=metaTotals.purchase_count+googleTotals.purchase_count, pv=metaTotals.purchase_value+googleTotals.purchase_value;
-  const combined = { spend:sp, impressions:imp, inline_link_clicks:lc, ctr:imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
+  const combined = { spend:sp, impressions:imp, inline_link_clicks:lc, ctr:imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, add_to_cart:atc, cpatc:atc>0?sp/atc:0, purchase_count:pc, purchase_value:pv, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
 
   const header = `<tr><th style="text-align:left">渠道</th>${cols.map(k=>`<th>${labels[k]}</th>`).join('')}</tr>`;
   const metaRow   = `<tr class="channel-meta"><td>META</td>${cols.map(k=>`<td>${fmt[k](metaTotals[k])}</td>`).join('')}</tr>`;
@@ -1282,7 +1288,7 @@ function computeEcTotals(data) {
 const COL_LABEL = labels; // reuse labels object
 
 const ALL_COLS    = ['spend','impressions','cpm','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click'];
-const EC_ALL_COLS      = ['spend','impressions','inline_link_clicks','ctr','cost_per_inline_link_click','purchase_count','purchase_value','cpa','roas'];
+const EC_ALL_COLS      = ['spend','impressions','inline_link_clicks','ctr','cost_per_inline_link_click','add_to_cart','cpatc','purchase_count','purchase_value','cpa','roas'];
 const META_EC_ALL_COLS = ['spend','impressions','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click','add_to_cart','cpatc','purchase_count','purchase_value','cpa','roas'];
 // Return correct EC cols based on current platform
 function getEcCols() {

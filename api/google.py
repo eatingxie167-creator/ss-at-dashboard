@@ -17,7 +17,7 @@ import re
 import urllib.parse
 import requests
 
-API_VERSION = "v21"
+API_VERSION = "v22"
 
 CUSTOMER_IDS = {
     "samsonite": "7170765915",
@@ -42,6 +42,60 @@ def get_access_token():
     return r.json()["access_token"]
 
 
+def run_query(cid, token, query):
+    r = requests.post(
+        f"https://googleads.googleapis.com/{API_VERSION}/customers/{cid}/googleAds:searchStream",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "developer-token": os.environ["GOOGLE_DEVELOPER_TOKEN"],
+            "login-customer-id": os.environ["GOOGLE_LOGIN_CUSTOMER_ID"],
+        },
+        json={"query": query},
+        timeout=60,
+    )
+    r.raise_for_status()
+    results = []
+    for batch in r.json():
+        results.extend(batch.get("results", []))
+    return results
+
+
+def query_add_to_cart(cid, token, since, until):
+    """Add-to-cart is NOT in metrics.conversions (those actions have
+    include_in_conversions_metric = false), so it has to be read from
+    metrics.all_conversions segmented by conversion action.
+
+    A campaign can have several ADD_TO_CART actions firing on the same event
+    (e.g. Samsonite has both the Adgeek button tag and GA4's add_to_cart).
+    Summing the category would double-count, so when an "Adgeek" action exists
+    we use only that one — it is the tag both brands share, and the one that
+    matches how Meta counts. Otherwise we fall back to the category total.
+    """
+    query = (
+        "SELECT segments.date, campaign.name, segments.conversion_action_name, "
+        "segments.conversion_action_category, metrics.all_conversions "
+        "FROM campaign "
+        f"WHERE segments.date BETWEEN '{since}' AND '{until}' "
+        "AND segments.conversion_action_category = 'ADD_TO_CART'"
+    )
+    results = run_query(cid, token, query)
+
+    has_adgeek = any(
+        "adgeek" in res.get("segments", {}).get("conversionActionName", "").lower()
+        for res in results
+    )
+    atc = {}
+    for res in results:
+        seg = res.get("segments", {})
+        name = seg.get("conversionActionName", "")
+        if has_adgeek and "adgeek" not in name.lower():
+            continue
+        key = (seg.get("date"), res.get("campaign", {}).get("name"))
+        val = float(res.get("metrics", {}).get("allConversions", 0))
+        atc[key] = atc.get(key, 0.0) + val
+    return atc
+
+
 def query_ads(brand, since, until):
     cid = CUSTOMER_IDS[brand]
     token = get_access_token()
@@ -51,31 +105,28 @@ def query_ads(brand, since, until):
         "FROM campaign "
         f"WHERE segments.date BETWEEN '{since}' AND '{until}'"
     )
-    r = requests.post(
-        f"https://googleads.googleapis.com/{API_VERSION}/customers/{cid}/googleAds:searchStream",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "developer-token": os.environ["GOOGLE_DEVELOPER_TOKEN"],
-            "login-customer-id": os.environ["GOOGLE_LOGIN_CUSTOMER_ID"],
-        },
-        json={"query": query},
-        timeout=30,
-    )
-    r.raise_for_status()
-    data = r.json()
+    results = run_query(cid, token, query)
+
+    try:
+        atc = query_add_to_cart(cid, token, since, until)
+    except Exception:
+        atc = {}  # never let add-to-cart break the main numbers
+
     rows = []
-    for batch in data:
-        for res in batch.get("results", []):
-            m = res.get("metrics", {})
-            rows.append({
-                "date": res.get("segments", {}).get("date"),
-                "campaign_name": res.get("campaign", {}).get("name"),
-                "cost": int(m.get("costMicros", 0)) / 1e6,
-                "clicks": int(m.get("clicks", 0)),
-                "impressions": int(m.get("impressions", 0)),
-                "conversions": float(m.get("conversions", 0)),
-                "conversions_value": float(m.get("conversionsValue", 0)),
-            })
+    for res in results:
+        m = res.get("metrics", {})
+        date = res.get("segments", {}).get("date")
+        cname = res.get("campaign", {}).get("name")
+        rows.append({
+            "date": date,
+            "campaign_name": cname,
+            "cost": int(m.get("costMicros", 0)) / 1e6,
+            "clicks": int(m.get("clicks", 0)),
+            "impressions": int(m.get("impressions", 0)),
+            "conversions": float(m.get("conversions", 0)),
+            "conversions_value": float(m.get("conversionsValue", 0)),
+            "add_to_cart": atc.get((date, cname), 0.0),
+        })
     return rows
 
 
