@@ -470,11 +470,11 @@ tr:hover td { background: #fafafa; }
     </div>
   </div>
 
-  <!-- Platform switcher (EC only) -->
-  <div class="platform-switcher" id="platformSwitcher" style="display:none">
-    <button class="platform-btn" onclick="switchPlatform(this,'all')">整體</button>
-    <button class="platform-btn active" onclick="switchPlatform(this,'meta')">META</button>
-    <button class="platform-btn google" onclick="switchPlatform(this,'google')">Google</button>
+  <!-- Platform switcher (both Branding and EC) -->
+  <div class="platform-switcher" id="platformSwitcher">
+    <button class="platform-btn" data-platform="all" onclick="switchPlatform(this,'all')">整體</button>
+    <button class="platform-btn active" data-platform="meta" onclick="switchPlatform(this,'meta')">META</button>
+    <button class="platform-btn google" data-platform="google" onclick="switchPlatform(this,'google')">Google</button>
   </div>
 
   <!-- Content -->
@@ -513,7 +513,7 @@ tr:hover td { background: #fafafa; }
       </div>
     </div>
 
-    <!-- Media channel table (EC only) -->
+    <!-- Media channel table (整體 platform only) -->
     <div class="section-gap" id="mediaChannelSection" style="display:none">
       <div class="section-label">媒體渠道表現</div>
       <div class="table-section media-channel-table">
@@ -799,7 +799,10 @@ async function fetchGoogleData() {
   const since = document.getElementById('dateSince').value;
   const until = document.getElementById('dateUntil').value;
 
+  // Branding and EC live in separate Google Ads accounts — the proxy picks the
+  // right one from `objective`.
   const url = `${GOOGLE_API_BASE}/api/google?brand=${encodeURIComponent(currentBrand)}`
+            + `&objective=${encodeURIComponent(currentObjective)}`
             + `&since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`;
   const resp = await fetch(url);
   if (!resp.ok) {
@@ -846,8 +849,12 @@ async function fetchGoogleData() {
   const finalize = r => {
     const sp = r.spend, lc = r.inline_link_clicks, imp = r.impressions, pc = r.purchase_count, pv = r.purchase_value;
     const atc = r.add_to_cart || 0;
+    // Google's metrics.clicks is what Meta calls 連結點擊, so it feeds
+    // inline_link_clicks and both of the click-rate/cost metrics below.
     return { ...r, add_to_cart: atc, cpatc: atc > 0 ? sp/atc : 0,
       ctr: imp > 0 ? (lc/imp)*100 : 0,
+      inline_link_click_ctr: imp > 0 ? (lc/imp)*100 : 0,
+      cpm: imp > 0 ? (sp/imp)*1000 : 0,
       cost_per_inline_link_click: lc > 0 ? sp/lc : 0,
       cpa: pc > 0 ? sp/pc : 0,
       roas: sp > 0 ? pv/sp : 0 };
@@ -864,10 +871,10 @@ function renderGoogleCards(data) {
 }
 
 function renderGoogleCampaignTable(campaigns) {
-  const cols = GOOGLE_COLS;
+  const cols = currentObjective === 'ec' ? GOOGLE_COLS : ALL_COLS;
   const compFn = rows => {
     const sp=sum(rows,'spend'), lc=sum(rows,'inline_link_clicks'), imp=sum(rows,'impressions'), atc=sum(rows,'add_to_cart'), pc=sum(rows,'purchase_count'), pv=sum(rows,'purchase_value');
-    return { spend:sp, impressions:imp, inline_link_clicks:lc, ctr:imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, add_to_cart:atc, cpatc:atc>0?sp/atc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
+    return { spend:sp, impressions:imp, inline_link_clicks:lc, ctr:imp>0?(lc/imp)*100:0, inline_link_click_ctr:imp>0?(lc/imp)*100:0, cpm:imp>0?(sp/imp)*1000:0, cost_per_inline_link_click:lc>0?sp/lc:0, purchase_count:pc, purchase_value:pv, add_to_cart:atc, cpatc:atc>0?sp/atc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
   };
   const totals = compFn(campaigns);
   const rows = campaigns.map(g => buildRow(g.campaign_name, g, cols)).join('');
@@ -889,7 +896,8 @@ function mergeDaily(metaArr, googleArr) {
   });
   return Object.values(map).sort((a,b)=>a.date_start.localeCompare(b.date_start)).map(r => {
     const sp=r.spend, lc=r.inline_link_clicks, imp=r.impressions, atc=r.add_to_cart, pc=r.purchase_count, pv=r.purchase_value;
-    return { ...r, ctr: imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0, add_to_cart:atc, cpatc:atc>0?sp/atc:0 };
+    return { ...r, ctr: imp>0?(lc/imp)*100:0, inline_link_click_ctr: imp>0?(lc/imp)*100:0, cpm: imp>0?(sp/imp)*1000:0,
+      cost_per_inline_link_click:lc>0?sp/lc:0, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0, add_to_cart:atc, cpatc:atc>0?sp/atc:0 };
   });
 }
 
@@ -1148,19 +1156,23 @@ function drawChart() {
 }
 
 function renderMediaChannelTable() {
-  const cols = EC_ALL_COLS;
-  const metaTotals   = computeEcTotals(_metaDailyData);
-  const googleTotals = computeEcTotals(_googleDailyData);
-  const allTotals    = computeEcTotals([...(_metaDailyData), ...(_googleDailyData)].reduce((acc,r)=>{
-    // re-merge to compute proper derived metrics
-    return acc;
-  }, []));
-  // Simpler: recompute combined
+  // Branding and EC both get a 合計 page; only the column set differs.
+  const isEc = currentObjective === 'ec';
+  const cols = isEc ? EC_ALL_COLS : ALL_COLS;
+  const compFn = isEc ? computeEcTotals : computeTotals;
+  const metaTotals   = compFn(_metaDailyData);
+  const googleTotals = compFn(_googleDailyData);
+
+  // Derived metrics (CTR/CPM/CPA/ROAS) can't be averaged across channels —
+  // rebuild them from the summed raw counts.
   const sp=metaTotals.spend+googleTotals.spend, lc=metaTotals.inline_link_clicks+googleTotals.inline_link_clicks;
   const imp=metaTotals.impressions+googleTotals.impressions;
-  const atc=metaTotals.add_to_cart+googleTotals.add_to_cart;
-  const pc=metaTotals.purchase_count+googleTotals.purchase_count, pv=metaTotals.purchase_value+googleTotals.purchase_value;
-  const combined = { spend:sp, impressions:imp, inline_link_clicks:lc, ctr:imp>0?(lc/imp)*100:0, cost_per_inline_link_click:lc>0?sp/lc:0, add_to_cart:atc, cpatc:atc>0?sp/atc:0, purchase_count:pc, purchase_value:pv, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
+  const atc=(metaTotals.add_to_cart||0)+(googleTotals.add_to_cart||0);
+  const pc=(metaTotals.purchase_count||0)+(googleTotals.purchase_count||0), pv=(metaTotals.purchase_value||0)+(googleTotals.purchase_value||0);
+  const combined = { spend:sp, impressions:imp, inline_link_clicks:lc,
+    ctr:imp>0?(lc/imp)*100:0, inline_link_click_ctr:imp>0?(lc/imp)*100:0, cpm:imp>0?(sp/imp)*1000:0,
+    cost_per_inline_link_click:lc>0?sp/lc:0, add_to_cart:atc, cpatc:atc>0?sp/atc:0,
+    purchase_count:pc, purchase_value:pv, cpa:pc>0?sp/pc:0, roas:sp>0?pv/sp:0 };
 
   const header = `<tr><th style="text-align:left">渠道</th>${cols.map(k=>`<th>${labels[k]}</th>`).join('')}</tr>`;
   const metaRow   = `<tr class="channel-meta"><td>META</td>${cols.map(k=>`<td>${fmt[k](metaTotals[k])}</td>`).join('')}</tr>`;
@@ -1178,21 +1190,23 @@ function switchMode(el, mode) {
 }
 
 function switchPlatform(el, platform) {
-  document.querySelectorAll('.platform-btn').forEach(b=>b.classList.remove('active'));
-  el.classList.add('active');
   currentPlatform = platform;
+  syncPlatformButtons();
   updatePlatformBadge();
   loadAll();
+}
+
+// Keep the highlighted button in step with currentPlatform. The platform
+// carries over when the objective changes, so the highlight has to be driven
+// off the state rather than off whichever button was last clicked.
+function syncPlatformButtons() {
+  document.querySelectorAll('.platform-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.platform === currentPlatform));
 }
 
 function updatePlatformBadge() {
   const badge = document.getElementById('platformBadge');
   if (!badge) return;
-  if (currentObjective !== 'ec') {
-    badge.style.background = '#1877f2';
-    badge.textContent = 'f META';
-    return;
-  }
   if (currentPlatform === 'google') {
     badge.style.background = '#4285f4';
     badge.textContent = 'G Google';
@@ -1209,14 +1223,16 @@ function updateSectionVisibility() {
   const isEc = currentObjective === 'ec';
   const isAll = currentPlatform === 'all';
 
-  // adset / ad sections only for META
-  const showMeta = !isEc || currentPlatform === 'meta';
+  // Google has no Meta-style adset/ad breakdown, so those tables are META-only
+  // in both objectives.
+  const showMeta = currentPlatform === 'meta';
   document.getElementById('adsetSection').style.display = showMeta ? '' : 'none';
   document.getElementById('adSection').style.display    = showMeta ? '' : 'none';
 
-  // 媒體/媒體佔比 chart buttons + 媒體渠道表現 table only in EC 整體
+  // 媒體/媒體佔比 chart buttons are EC-only; the 媒體渠道表現 合計 table shows
+  // in 整體 for both objectives.
   document.querySelectorAll('.ec-all-only').forEach(b => b.style.display = (isEc && isAll) ? '' : 'none');
-  document.getElementById('mediaChannelSection').style.display = (isEc && isAll) ? '' : 'none';
+  document.getElementById('mediaChannelSection').style.display = isAll ? '' : 'none';
 
   // If switching away from 整體 while on a special mode, reset chart mode
   if (!(isEc && isAll) && (activeMode === 'ec_media' || activeMode === 'ec_pie')) {
@@ -1232,10 +1248,11 @@ function switchObjective(el, obj) {
   el.classList.add('active');
   currentObjective = obj;
 
-  // platform switcher
+  // Both objectives now have Google data, so the platform switcher always shows
+  // and the current platform carries over.
   const isEc = obj === 'ec';
-  document.getElementById('platformSwitcher').style.display = isEc ? '' : 'none';
-  if (!isEc) currentPlatform = 'meta';
+  document.getElementById('platformSwitcher').style.display = '';
+  syncPlatformButtons();
 
   // 切換圖表模式按鈕組
   document.getElementById('brandingModes').style.display = isEc ? 'none' : '';
@@ -1689,7 +1706,7 @@ function downloadExcel() {
 
   const brandName = currentBrand === 'samsonite' ? 'Samsonite' : 'American_Tourister';
   const objName   = currentObjective === 'ec' ? 'EC' : 'Branding';
-  const platName  = currentObjective === 'ec' ? `_${currentPlatform}` : '';
+  const platName  = `_${currentPlatform}`;
   const since = document.getElementById('dateSince').value;
   const until = document.getElementById('dateUntil').value;
   const filename = `${brandName}_${objName}${platName}_${since}_${until}.xlsx`;
@@ -1720,7 +1737,7 @@ async function loadAll() {
   document.getElementById('summaryCards').innerHTML='<div class="loading" style="grid-column:1/-1"><div class="spinner"></div> 載入中...</div>';
 
   const isEc = currentObjective === 'ec';
-  const showAdTables = !isEc || currentPlatform === 'meta';
+  const showAdTables = currentPlatform === 'meta';  // Google has no adset/ad level
   if (showAdTables) { showLoading('adsetTable'); showLoading('adTable'); }
 
   // New view: invalidate any in-flight thumbnail loads and clear stale images/status.
@@ -1782,24 +1799,47 @@ async function loadAll() {
       }
 
     } else {
-      // ── Branding mode ──────────────────────────────
-      _metaDailyData = []; _googleDailyData = [];
-      const [daily, campaign, adset] = await Promise.all([
+      // ── Branding mode: same META + Google split as EC ──
+      const [metaDaily, metaCampaign, gData] = await Promise.all([
         fetchInsights('account'),
         fetchInsights('campaign'),
-        fetchInsights('adset'),
+        fetchGoogleData().catch(()=>({ daily:[], campaigns:[] })),
       ]);
       if (thumbToken !== _adThumbToken) return; // stale — a newer view has since started loading
-      if (daily.error) { showError('dailyTable', daily.error.message); return; }
-      renderCards(daily);
-      renderChart(daily);
-      renderDailyTable(daily);
-      if (!campaign.error) renderCampaignTable(campaign); else showError('campaignTable', campaign.error.message);
-      if (!adset.error)    { renderAdsetTable(adset); loadAdsetStatus(adset, thumbToken); } else showError('adsetTable',   adset.error.message);
-      const ad = await fetchInsights('ad');
-      if (thumbToken !== _adThumbToken) return; // stale — a newer view has since started loading
-      if (!ad.error) { renderAdTable(ad); loadAdThumbs(ad, thumbToken); }
-      else showError('adTable', ad.error.message);
+      if (metaDaily.error) { showError('dailyTable', metaDaily.error.message); return; }
+      _metaDailyData   = metaDaily;
+      _googleDailyData = gData.daily || [];
+
+      renderMediaChannelTable();
+
+      let displayDaily;
+      if      (currentPlatform === 'google') displayDaily = _googleDailyData;
+      else if (currentPlatform === 'meta')   displayDaily = _metaDailyData;
+      else                                   displayDaily = mergeDaily(_metaDailyData, _googleDailyData);
+
+      renderCards(displayDaily);
+      renderChart(displayDaily);
+      renderDailyTable(displayDaily);
+
+      if (currentPlatform === 'google') {
+        renderGoogleCampaignTable(gData.campaigns || []);
+      } else if (currentPlatform === 'all') {
+        const allCamp = [...(!metaCampaign.error ? metaCampaign : []), ...(gData.campaigns||[])];
+        renderCampaignTable(allCamp);
+      } else {
+        if (!metaCampaign.error) renderCampaignTable(metaCampaign); else showError('campaignTable', metaCampaign.error.message);
+      }
+
+      // Adset / Ad (META only)
+      if (showAdTables) {
+        const adset = await fetchInsights('adset');
+        if (thumbToken !== _adThumbToken) return; // stale — a newer view has since started loading
+        if (!adset.error) { renderAdsetTable(adset); loadAdsetStatus(adset, thumbToken); } else showError('adsetTable', adset.error.message);
+        const ad = await fetchInsights('ad');
+        if (thumbToken !== _adThumbToken) return; // stale — a newer view has since started loading
+        if (!ad.error) { renderAdTable(ad); loadAdThumbs(ad, thumbToken); }
+        else showError('adTable', ad.error.message);
+      }
     }
   } catch(e) {
     if (thumbToken === _adThumbToken) {

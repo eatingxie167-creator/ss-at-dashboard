@@ -1,7 +1,12 @@
 """Vercel serverless function: proxy Google Ads API for the dashboard.
 
-GET /api/google?brand=samsonite|american_tourister&since=YYYY-MM-DD&until=YYYY-MM-DD
+GET /api/google?brand=samsonite|american_tourister&objective=ec|branding
+            &since=YYYY-MM-DD&until=YYYY-MM-DD
 Returns: { "rows": [ {date, campaign_name, cost, clicks, impressions, conversions, conversions_value}, ... ] }
+
+`objective` picks which Google Ads account to read: each brand runs EC and
+Branding out of separate accounts. It defaults to "ec" so older callers keep
+working.
 
 Secrets are read from environment variables (set them in the Vercel dashboard):
   GOOGLE_CLIENT_ID
@@ -19,9 +24,17 @@ import requests
 
 API_VERSION = "v22"
 
+# objective -> brand -> customer id. All four sit under the same MCC
+# (GOOGLE_LOGIN_CUSTOMER_ID), so one refresh token covers them.
 CUSTOMER_IDS = {
-    "samsonite": "7170765915",
-    "american_tourister": "3650448748",
+    "ec": {
+        "samsonite": "7170765915",           # 717-076-5915
+        "american_tourister": "3650448748",  # 365-044-8748
+    },
+    "branding": {
+        "samsonite": "8266755074",           # 826-675-5074
+        "american_tourister": "9732762027",  # 973-276-2027
+    },
 }
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -96,8 +109,8 @@ def query_add_to_cart(cid, token, since, until):
     return atc
 
 
-def query_ads(brand, since, until):
-    cid = CUSTOMER_IDS[brand]
+def query_ads(brand, since, until, objective="ec"):
+    cid = CUSTOMER_IDS[objective][brand]
     token = get_access_token()
     query = (
         "SELECT segments.date, campaign.name, metrics.cost_micros, "
@@ -107,10 +120,13 @@ def query_ads(brand, since, until):
     )
     results = run_query(cid, token, query)
 
-    try:
-        atc = query_add_to_cart(cid, token, since, until)
-    except Exception:
-        atc = {}  # never let add-to-cart break the main numbers
+    # Branding accounts have no purchase funnel, so skip the extra round trip.
+    atc = {}
+    if objective == "ec":
+        try:
+            atc = query_add_to_cart(cid, token, since, until)
+        except Exception:
+            atc = {}  # never let add-to-cart break the main numbers
 
     rows = []
     for res in results:
@@ -152,15 +168,18 @@ class handler(BaseHTTPRequestHandler):
         try:
             params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             brand = params.get("brand", [""])[0]
+            objective = params.get("objective", ["ec"])[0] or "ec"
             since = params.get("since", [""])[0]
             until = params.get("until", [""])[0]
 
-            if brand not in CUSTOMER_IDS:
+            if objective not in CUSTOMER_IDS:
+                return self._send(400, {"error": f"invalid objective: {objective}"})
+            if brand not in CUSTOMER_IDS[objective]:
                 return self._send(400, {"error": f"invalid brand: {brand}"})
             if not DATE_RE.match(since) or not DATE_RE.match(until):
                 return self._send(400, {"error": "since/until must be YYYY-MM-DD"})
 
-            rows = query_ads(brand, since, until)
+            rows = query_ads(brand, since, until, objective)
             self._send(200, {"rows": rows})
         except requests.HTTPError as e:
             detail = e.response.text if e.response is not None else str(e)
