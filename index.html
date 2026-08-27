@@ -360,6 +360,52 @@ tr:hover td { background: #fafafa; }
   border-top: 2px solid var(--brand-accent);
 }
 
+/* ── YoY compare ─────────────────────────────────────── */
+.yoy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 1280px) { .yoy-grid { grid-template-columns: 1fr; } }
+/* no overflow:hidden — it would clip the campaign dropdown panel */
+.yoy-panel {
+  background: #fff; border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+}
+.yoy-head {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 11px 14px; border-bottom: 1px solid #f0f0f0;
+  background: #fcfcfc; border-radius: 12px 12px 0 0;
+}
+.yoy-head .date-input { padding: 5px 8px; }
+.yoy-head .ms-wrap { margin-left: auto; order: 0; }
+.yoy-head .ms-toggle { max-width: 230px; }
+.yoy-body { overflow-x: auto; }
+/* Two tables share the row width, so this one runs denser than the full-width
+   tables above — otherwise the last metric column gets pushed out of view. */
+.yoy-body table { border-radius: 0 0 12px 12px; font-size: 12px; }
+.yoy-body th { padding: 8px 8px; font-size: 10px; letter-spacing: 0.2px; }
+.yoy-body td { padding: 7px 8px; white-space: nowrap; }
+.yoy-body td:first-child {
+  max-width: 250px; white-space: normal;
+  font-size: 11px; line-height: 1.3; font-weight: 500;
+}
+.yoy-sub td { font-weight: 700; background: #fafafa; }
+.yoy-tag {
+  display: inline-block; font-size: 9px; font-weight: 800;
+  padding: 1px 5px; border-radius: 4px; color: #fff;
+  margin-right: 6px; vertical-align: 1px;
+}
+.yoy-tag.meta   { background: #1877f2; }
+.yoy-tag.google { background: #4285f4; }
+.yoy-run {
+  padding: 5px 15px; background: var(--brand-primary);
+  color: #fff; border: none; border-radius: 6px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  text-transform: none; letter-spacing: 0;
+  transition: opacity 0.15s;
+}
+.yoy-run:hover:not(:disabled) { opacity: 0.85; }
+.yoy-run:disabled { opacity: 0.45; cursor: default; }
+.yoy-note { font-weight: 500; text-transform: none; letter-spacing: 0; color: #bbb; }
+.yoy-empty { padding: 30px 14px; text-align: center; color: #aaa; font-size: 13px; }
+
 /* ── Misc ────────────────────────────────────────────── */
 .loading {
   display: flex; align-items: center; justify-content: center;
@@ -570,6 +616,47 @@ tr:hover td { background: #fafafa; }
         <div class="table-inner" id="adTable">
           <div class="loading"><div class="spinner"></div> 載入中...</div>
         </div>
+      </div>
+    </div>
+
+    <!-- 年對年比較（Branding only）— 走期與上方日期無關，需按「查詢」才抓 -->
+    <div class="section-gap" id="yoySection">
+      <div class="section-label">年對年比較（Campaign）
+        <button type="button" class="yoy-run" id="yoyRunBtn" onclick="yoyRun()">查詢</button>
+        <span class="yoy-note" id="yoyNote"></span>
+      </div>
+      <div class="yoy-grid">
+
+        <div class="yoy-panel">
+          <div class="yoy-head">
+            <input type="date" id="yoyLSince" class="date-input">
+            <span class="date-sep">—</span>
+            <input type="date" id="yoyLUntil" class="date-input">
+            <div class="ms-wrap" id="yoyLMs" style="display:none">
+              <button type="button" class="ms-toggle" id="yoyLMsToggle" onclick="yoyToggleMs('L',event)">全部活動</button>
+              <div class="ms-panel" id="yoyLMsPanel"></div>
+            </div>
+          </div>
+          <div class="yoy-body" id="yoyLTable">
+            <div class="yoy-empty">按上方「查詢」載入</div>
+          </div>
+        </div>
+
+        <div class="yoy-panel">
+          <div class="yoy-head">
+            <input type="date" id="yoyRSince" class="date-input">
+            <span class="date-sep">—</span>
+            <input type="date" id="yoyRUntil" class="date-input">
+            <div class="ms-wrap" id="yoyRMs" style="display:none">
+              <button type="button" class="ms-toggle" id="yoyRMsToggle" onclick="yoyToggleMs('R',event)">全部活動</button>
+              <div class="ms-panel" id="yoyRMsPanel"></div>
+            </div>
+          </div>
+          <div class="yoy-body" id="yoyRTable">
+            <div class="yoy-empty">按上方「查詢」載入</div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1229,6 +1316,10 @@ function updateSectionVisibility() {
   document.getElementById('adsetSection').style.display = showMeta ? '' : 'none';
   document.getElementById('adSection').style.display    = showMeta ? '' : 'none';
 
+  // 年對年比較 is Branding-only; drop stale results if brand/platform changed
+  document.getElementById('yoySection').style.display = isEc ? 'none' : '';
+  yoyCheckCtx();
+
   // 媒體/媒體佔比 chart buttons are EC-only; the 媒體渠道表現 合計 table shows
   // in 整體 for both objectives.
   document.querySelectorAll('.ec-all-only').forEach(b => b.style.display = (isEc && isAll) ? '' : 'none');
@@ -1861,8 +1952,231 @@ function showError(id,msg) {
   document.getElementById(id).innerHTML=`<div class="error-msg">⚠️ ${msg}</div>`;
 }
 
+// ── 年對年比較（Branding only）────────────────────────────
+// Two independent panels, each with its own date range and campaign
+// multi-select. Deliberately NOT wired to the top-bar dates: the whole point
+// is comparing two different periods side by side. Data is only fetched when
+// the user presses 查詢, because this costs up to 4 extra API round-trips.
+const YOY_COLS = ALL_COLS;  // 花費/曝光/CPM/連結點擊/CTR(link)/CPC(link)
+const YOY_DEFAULTS = {
+  L: { since: '2025-08-14', until: '2025-09-07' },
+  R: { since: '2026-08-13', until: '2026-09-06' },
+};
+const _yoyRaw   = { L: [], R: [] };
+const _yoySel   = { L: new Set(), R: new Set() };   // empty = 全部
+const _yoyNames = { L: [], R: [] };
+let _yoyToken = 0;
+let _yoyCtx   = '';   // brand|objective|platform the loaded data belongs to
+
+const _yoyEsc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function yoyCtxKey() { return `${currentBrand}|${currentObjective}|${currentPlatform}`; }
+
+// Called from updateSectionVisibility(). Blows away loaded data only when the
+// brand/objective/platform changed — a plain 套用 up top must not wipe the
+// panels, since their dates are independent anyway.
+function yoyCheckCtx() {
+  if (_yoyCtx && _yoyCtx !== yoyCtxKey()) yoyReset();
+}
+
+function yoyReset() {
+  _yoyCtx = '';
+  ['L','R'].forEach(s => {
+    _yoyRaw[s] = []; _yoySel[s].clear(); _yoyNames[s] = [];
+    const ms = document.getElementById(`yoy${s}Ms`);
+    if (ms) ms.style.display = 'none';
+    const t = document.getElementById(`yoy${s}Table`);
+    if (t) t.innerHTML = '<div class="yoy-empty">按上方「查詢」載入</div>';
+  });
+  const note = document.getElementById('yoyNote');
+  if (note) note.textContent = '';
+}
+
+// Campaign-level Meta pull for an arbitrary range. Mirrors fetchInsights()
+// but takes explicit dates instead of reading the top-bar inputs.
+async function yoyFetchMeta(since, until) {
+  const accountId = ACCOUNT_IDS[currentBrand][currentObjective];
+  const params = new URLSearchParams({
+    access_token: ACCESS_TOKEN,
+    fields: BRANDING_FIELDS + ',campaign_name,campaign_id',
+    time_range: JSON.stringify({ since, until }),
+    level: 'campaign',
+    limit: 500,
+  });
+  const all = [];
+  let url = `${GRAPH_URL}/${accountId}/insights?${params}`;
+  while (url) {
+    const json = await (await fetch(url)).json();
+    if (json.error) throw new Error(`Meta: ${json.error.message}`);
+    all.push(...(json.data || []));
+    url = json.paging?.next || null;
+  }
+  return all.map(r => ({
+    campaign_name: r.campaign_name || 'Unknown',
+    platform: 'meta',
+    spend:              Number(r.spend || 0),
+    impressions:        Number(r.impressions || 0),
+    inline_link_clicks: Number(r.inline_link_clicks || 0),
+  }));
+}
+
+// Google has no "link click" — metrics.clicks is the equivalent, same as the
+// rest of the dashboard.
+async function yoyFetchGoogle(since, until) {
+  const url = `${GOOGLE_API_BASE}/api/google?brand=${encodeURIComponent(currentBrand)}`
+            + `&objective=${encodeURIComponent(currentObjective)}`
+            + `&since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Google Ads API 錯誤 (${resp.status})`);
+  const json = await resp.json();
+  const by = {};
+  (json.rows || []).forEach(r => {
+    const n = r.campaign_name || 'Unknown';
+    if (!by[n]) by[n] = { campaign_name: n, platform: 'google', spend: 0, impressions: 0, inline_link_clicks: 0 };
+    by[n].spend              += Number(r.cost || 0);
+    by[n].impressions        += Number(r.impressions || 0);
+    by[n].inline_link_clicks += Number(r.clicks || 0);
+  });
+  return Object.values(by);
+}
+
+async function yoyFetchSide(side) {
+  const since = document.getElementById(`yoy${side}Since`).value;
+  const until = document.getElementById(`yoy${side}Until`).value;
+  if (!since || !until) throw new Error('請先選擇日期區間');
+  const tasks = [];
+  if (currentPlatform !== 'google') tasks.push(yoyFetchMeta(since, until));
+  if (currentPlatform !== 'meta')   tasks.push(yoyFetchGoogle(since, until));
+  return (await Promise.all(tasks)).flat();
+}
+
+function yoyDayCount(side) {
+  const s = document.getElementById(`yoy${side}Since`).value;
+  const u = document.getElementById(`yoy${side}Until`).value;
+  if (!s || !u) return 0;
+  return Math.round((new Date(u) - new Date(s)) / 86400000) + 1;
+}
+
+async function yoyRun() {
+  const btn   = document.getElementById('yoyRunBtn');
+  const token = ++_yoyToken;
+  btn.disabled = true; btn.textContent = '查詢中…';
+  document.getElementById('yoyNote').textContent = '';
+  ['L','R'].forEach(s => {
+    document.getElementById(`yoy${s}Ms`).style.display = 'none';
+    document.getElementById(`yoy${s}Table`).innerHTML =
+      '<div class="loading"><div class="spinner"></div> 載入中...</div>';
+  });
+  try {
+    const [l, r] = await Promise.all([yoyFetchSide('L'), yoyFetchSide('R')]);
+    if (token !== _yoyToken) return;   // a newer 查詢 has superseded this one
+    _yoyRaw.L = l; _yoyRaw.R = r;
+    _yoyCtx = yoyCtxKey();
+    ['L','R'].forEach(s => { yoyPopulateMs(s); yoyDraw(s); });
+    document.getElementById('yoyNote').textContent =
+      `左 ${yoyDayCount('L')} 天 ／ 右 ${yoyDayCount('R')} 天`;
+  } catch (e) {
+    if (token !== _yoyToken) return;
+    ['L','R'].forEach(s => {
+      document.getElementById(`yoy${s}Table`).innerHTML =
+        `<div class="yoy-empty" style="color:#c33">⚠️ ${_yoyEsc(e.message)}</div>`;
+    });
+  } finally {
+    if (token === _yoyToken) { btn.disabled = false; btn.textContent = '查詢'; }
+  }
+}
+
+function yoyPopulateMs(side) {
+  const panel = document.getElementById(`yoy${side}MsPanel`);
+  const wrap  = document.getElementById(`yoy${side}Ms`);
+  _yoyNames[side] = [...new Set(_yoyRaw[side].map(r => r.campaign_name))].sort();
+  _yoySel[side] = new Set([..._yoySel[side]].filter(n => _yoyNames[side].includes(n)));
+  wrap.style.display = _yoyNames[side].length ? '' : 'none';
+  panel.innerHTML =
+    `<label class="ms-opt ms-all"><input type="checkbox" id="yoy${side}MsAll" onchange="yoyMsAll('${side}',this)"> 全部活動</label>` +
+    _yoyNames[side].map(n =>
+      `<label class="ms-opt"><input type="checkbox" class="yoy${side}Chk" value="${_yoyEsc(n)}" onchange="yoyMsChange('${side}')"> ${_yoyEsc(n)}</label>`
+    ).join('');
+  yoySyncMs(side);
+}
+
+function yoyToggleMs(side, e) {
+  e.stopPropagation();
+  document.getElementById(`yoy${side}MsPanel`).classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  ['L','R'].forEach(s => {
+    const w = document.getElementById(`yoy${s}Ms`);
+    if (w && !w.contains(e.target)) document.getElementById(`yoy${s}MsPanel`)?.classList.remove('open');
+  });
+});
+
+function yoyMsAll(side, cb) {
+  if (cb.checked) _yoySel[side].clear();
+  yoySyncMs(side); yoyDraw(side);
+}
+function yoyMsChange(side) {
+  _yoySel[side] = new Set(
+    [...document.querySelectorAll(`.yoy${side}Chk`)].filter(c => c.checked).map(c => c.value)
+  );
+  yoySyncMs(side); yoyDraw(side);
+}
+function yoySyncMs(side) {
+  const all = _yoySel[side].size === 0;
+  document.querySelectorAll(`.yoy${side}Chk`).forEach(c => { c.checked = _yoySel[side].has(c.value); });
+  const allBox = document.getElementById(`yoy${side}MsAll`);
+  if (allBox) allBox.checked = all;
+  const btn = document.getElementById(`yoy${side}MsToggle`);
+  if (btn) btn.textContent = all ? '全部活動' : `已選 ${_yoySel[side].size} 個活動`;
+}
+
+// Keeps `platform` alongside the aggregates, which _groupBy() drops.
+function yoyGroup(raw) {
+  const map = {};
+  raw.forEach(r => {
+    const k = `${r.platform}||${r.campaign_name}`;
+    if (!map[k]) map[k] = { name: r.campaign_name, platform: r.platform, rows: [] };
+    map[k].rows.push(r);
+  });
+  return Object.values(map)
+    .map(g => ({ name: g.name, platform: g.platform, ...computeTotals(g.rows) }))
+    .filter(g => g.spend > 0 || g.impressions > 0)
+    .sort((a, b) => b.spend - a.spend);
+}
+
+function yoyBuildRows(groups) {
+  const cell = g => currentPlatform === 'all'
+    ? `<span class="yoy-tag ${g.platform}">${g.platform === 'meta' ? 'f' : 'G'}</span>${_yoyEsc(g.name)}`
+    : _yoyEsc(g.name);
+  if (currentPlatform !== 'all') return groups.map(g => buildRow(cell(g), g, YOY_COLS)).join('');
+  // 整體：group by platform with a subtotal above each block
+  let out = '';
+  [['meta','META'], ['google','Google']].forEach(([p, label]) => {
+    const sub = groups.filter(g => g.platform === p);
+    if (!sub.length) return;
+    const t = computeTotals(sub);
+    out += `<tr class="yoy-sub"><td><span class="yoy-tag ${p}">${p === 'meta' ? 'f' : 'G'}</span>${label} 小計</td>`
+         + YOY_COLS.map(k => `<td>${fmt[k](t[k])}</td>`).join('') + `</tr>`;
+    out += sub.map(g => buildRow(cell(g), g, YOY_COLS)).join('');
+  });
+  return out;
+}
+
+function yoyDraw(side) {
+  const sel  = _yoySel[side];
+  const rows = _yoyRaw[side].filter(r => sel.size === 0 || sel.has(r.campaign_name));
+  const groups = yoyGroup(rows);
+  const el = document.getElementById(`yoy${side}Table`);
+  if (!groups.length) { el.innerHTML = '<div class="yoy-empty">此區間沒有資料</div>'; return; }
+  el.innerHTML = buildTable(yoyBuildRows(groups), computeTotals(groups), '活動名稱', YOY_COLS);
+}
+
 // ── Init ──────────────────────────────────────────────────
 window.onload = () => {
+  ['L','R'].forEach(s => {
+    document.getElementById(`yoy${s}Since`).value = YOY_DEFAULTS[s].since;
+    document.getElementById(`yoy${s}Until`).value = YOY_DEFAULTS[s].until;
+  });
   setPreset(document.querySelector('[data-preset="last_30"]'),'last_30');
 };
 </script>
