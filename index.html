@@ -664,14 +664,14 @@ tr:hover td { background: #fafafa; }
 </div><!-- /main -->
 
 <script>
-const ACCESS_TOKEN = 'EAAOgjBZCa97gBRsau23cuaiGPGILbMg4jfK3CByOLay0lmIl2eHL2k2VkmeqJymNwIQZAcfoIqO9HvONrB4LNQwTrIWo0bqCv9ILZBOTaWXS5ZB5Qa3KZAg8YF1dVfyPufTVQQCoRacXFNjaTI658v4WOOTf7Up3oon1KMwZBOOeX9LVpYsDZAqcw1ic2X6';
-const GRAPH_URL = 'https://graph.facebook.com/v21.0';
-const ACCOUNT_IDS = {
-  samsonite:           { branding: 'act_1318174565548910',  ec: 'act_599620824954716'  },
-  american_tourister:  { branding: 'act_1530988521034172',  ec: 'act_484946893063783'  },
-};
-const BRANDING_FIELDS = 'spend,impressions,cpm,inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click';
-const EC_FIELDS       = 'spend,impressions,inline_link_clicks,cost_per_inline_link_click,actions,action_values';
+// This page is served from a PUBLIC GitHub Pages site, so no API credential may
+// appear here — Meta and Google both go through the Vercel proxy in api/, which
+// reads its secrets from environment variables. See api/meta.py for the
+// (deliberately narrow) request surface.
+const API_BASE = 'https://ss-at-dashboard.vercel.app';
+// Ad account ids and the per-objective field lists now live in api/meta.py —
+// the proxy resolves them from brand+objective so this page never names an
+// account it wants to read.
 let currentBrand     = 'samsonite';
 let currentObjective = 'branding';
 let currentPlatform  = 'meta'; // 'meta' | 'google' | 'all'
@@ -683,7 +683,7 @@ let _metaDailyData   = [];
 let _googleDailyData = [];
 
 // Google Ads data now comes DIRECTLY from the accounts via the Vercel API proxy.
-const GOOGLE_API_BASE = 'https://ss-at-dashboard.vercel.app';
+const GOOGLE_API_BASE = API_BASE;
 const GOOGLE_COLS = ['spend','impressions','inline_link_clicks','ctr','cost_per_inline_link_click','add_to_cart','cpatc','purchase_count','purchase_value','cpa','roas'];
 
 // Brand colour palettes
@@ -989,35 +989,36 @@ function mergeDaily(metaArr, googleArr) {
 }
 
 // ── Fetch ────────────────────────────────────────────────
-async function fetchInsights(level) {
-  const since = document.getElementById('dateSince').value;
-  const until = document.getElementById('dateUntil').value;
-  const accountId = ACCOUNT_IDS[currentBrand][currentObjective];
-
-  let fields = currentObjective === 'ec' ? EC_FIELDS : BRANDING_FIELDS;
-  if (level === 'campaign') fields += ',campaign_name,campaign_id';
-  if (level === 'adset')    fields += ',adset_name,adset_id,campaign_name';
-  if (level === 'ad')       fields += ',ad_name,ad_id,adset_name,campaign_name';
-
+// Shared with the year-over-year block. The proxy pages through the whole
+// insights cursor server-side, so this returns every row in one response.
+// Returns either an array of rows, or {error:{message}} — callers check
+// `.error`, matching the shape Graph used to return directly.
+async function fetchMetaInsights(level, since, until) {
   const params = new URLSearchParams({
-    access_token: ACCESS_TOKEN,
-    fields,
-    time_range: JSON.stringify({ since, until }),
-    ...(level === 'account' ? { time_increment: 1 } : {}),
+    mode: 'insights',
+    brand: currentBrand,
+    objective: currentObjective,
     level,
-    limit: 500,
+    since,
+    until,
+    ...(level === 'account' ? { time_increment: 1 } : {}),
   });
-
-  const all = [];
-  let url = `${GRAPH_URL}/${accountId}/insights?${params}`;
-  while (url) {
-    const resp = await fetch(url);
-    const json = await resp.json();
-    if (json.error) return json;
-    all.push(...(json.data || []));
-    url = json.paging?.next || null;
+  let json;
+  try {
+    json = await (await fetch(`${API_BASE}/api/meta?${params}`)).json();
+  } catch (e) {
+    return { error: { message: `Meta proxy 無回應：${e.message}` } };
   }
-  return all;
+  if (json.error) return json;
+  return json.data || [];
+}
+
+function fetchInsights(level) {
+  return fetchMetaInsights(
+    level,
+    document.getElementById('dateSince').value,
+    document.getElementById('dateUntil').value,
+  );
 }
 
 // ── Summary cards ────────────────────────────────────────
@@ -1574,11 +1575,11 @@ async function fetchAdCreativesByIds(ids) {
     for (let i = 0; i < ids.length; i += 50) {
       const chunk = ids.slice(i, i + 50);
       const params = new URLSearchParams({
-        access_token: ACCESS_TOKEN,
+        mode: 'objects',
+        fieldset: 'ad_status',
         ids: chunk.join(','),
-        fields: 'name,effective_status,creative{thumbnail_url,image_url,object_story_spec},adset{end_time},campaign{stop_time}',
       });
-      const resp = await fetch(`${GRAPH_URL}/?${params}`);
+      const resp = await fetch(`${API_BASE}/api/meta?${params}`);
       const json = await resp.json();
       if (json.error) continue;
       Object.values(json).forEach(ad => {
@@ -1630,11 +1631,11 @@ async function fetchAdsetStatusByIds(ids) {
     for (let i = 0; i < ids.length; i += 50) {
       const chunk = ids.slice(i, i + 50);
       const params = new URLSearchParams({
-        access_token: ACCESS_TOKEN,
+        mode: 'objects',
+        fieldset: 'adset_status',
         ids: chunk.join(','),
-        fields: 'name,effective_status,end_time,campaign{stop_time}',
       });
-      const resp = await fetch(`${GRAPH_URL}/?${params}`);
+      const resp = await fetch(`${API_BASE}/api/meta?${params}`);
       const json = await resp.json();
       if (json.error) continue;
       Object.values(json).forEach(as => {
@@ -1992,26 +1993,12 @@ function yoyReset() {
   if (note) note.textContent = '';
 }
 
-// Campaign-level Meta pull for an arbitrary range. Mirrors fetchInsights()
-// but takes explicit dates instead of reading the top-bar inputs.
+// Campaign-level Meta pull for an arbitrary range — same proxy call the rest of
+// the dashboard makes, just with explicit dates instead of the top-bar inputs.
 async function yoyFetchMeta(since, until) {
-  const accountId = ACCOUNT_IDS[currentBrand][currentObjective];
-  const params = new URLSearchParams({
-    access_token: ACCESS_TOKEN,
-    fields: BRANDING_FIELDS + ',campaign_name,campaign_id',
-    time_range: JSON.stringify({ since, until }),
-    level: 'campaign',
-    limit: 500,
-  });
-  const all = [];
-  let url = `${GRAPH_URL}/${accountId}/insights?${params}`;
-  while (url) {
-    const json = await (await fetch(url)).json();
-    if (json.error) throw new Error(`Meta: ${json.error.message}`);
-    all.push(...(json.data || []));
-    url = json.paging?.next || null;
-  }
-  return all.map(r => ({
+  const rows = await fetchMetaInsights('campaign', since, until);
+  if (rows.error) throw new Error(`Meta: ${rows.error.message}`);
+  return rows.map(r => ({
     campaign_name: r.campaign_name || 'Unknown',
     platform: 'meta',
     spend:              Number(r.spend || 0),

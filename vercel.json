@@ -1,8 +1,10 @@
 {
   "builds": [
-    { "src": "api/google.py", "use": "@vercel/python" }
+    { "src": "api/google.py", "use": "@vercel/python" },
+    { "src": "api/meta.py", "use": "@vercel/python" }
   ],
   "routes": [
-    { "src": "/api/google", "dest": "/api/google.py" }
+    { "src": "/api/google", "dest": "/api/google.py" },
+    { "src": "/api/meta", "dest": "/api/meta.py" }
   ]
 }
