@@ -22,7 +22,11 @@ import re
 import urllib.parse
 import requests
 
-API_VERSION = "v22"
+# Google blocks deprecated versions, and enforcement rolls out account by
+# account, so a stale version fails on some of the four customers while still
+# working on others. v22 started returning UNSUPPORTED_VERSION in 2026-10
+# (v21 was cut off in 2026-08). v26 is the newest version live as of 2026-10.
+API_VERSION = "v26"
 
 # objective -> brand -> customer id. All four sit under the same MCC
 # (GOOGLE_LOGIN_CUSTOMER_ID), so one refresh token covers them.

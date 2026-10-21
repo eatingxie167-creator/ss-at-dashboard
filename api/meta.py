@@ -70,6 +70,11 @@ IDS_RE = re.compile(r"^\d+(,\d+)*$")
 MAX_IDS = 50
 MAX_PAGES = 50  # hard stop so a runaway cursor can't hang the function
 
+# Breakdown used to work around the Graph daily-spend fault (see _patch_zero_spend).
+# publisher_platform is the cheapest one: a handful of rows per day, and it
+# partitions delivery exactly, so the parts sum back to the true daily total.
+REPAIR_BREAKDOWN = "publisher_platform"
+
 
 def _token():
     token = os.environ.get("META_ACCESS_TOKEN")
@@ -109,7 +114,81 @@ def fetch_insights(brand, objective, level, since, until, time_increment=None):
         if not url:
             break
         params = None  # `next` already carries every query parameter
+
+    if time_increment:
+        rows = _patch_zero_spend(
+            account_id, fields, since, until, level, time_increment, rows)
     return {"data": rows}
+
+
+def _fault_rows(rows):
+    """Rows showing the Graph daily fault: zero spend/impressions yet real clicks.
+
+    A day that genuinely had no delivery reports zero across the board, so
+    requiring clicks > 0 keeps real zero-spend days from being "repaired".
+    """
+    return [
+        r for r in rows
+        if float(r.get("spend") or 0) == 0
+        and int(r.get("impressions") or 0) == 0
+        and int(r.get("inline_link_clicks") or 0) > 0
+    ]
+
+
+def _patch_zero_spend(account_id, fields, since, until, level, time_increment, rows):
+    """Repair daily rows that Graph returned with spend/impressions zeroed out.
+
+    As of 2026-10, `time_increment=1` on some accounts comes back with
+    spend == impressions == 0 while inline_link_clicks and actions are correct.
+    The same request with any `breakdowns` returns the real figures, and the
+    breakdown parts sum back to the un-incremented total exactly, so we refetch
+    broken down and copy only spend/impressions onto the affected days.
+
+    Conversions are deliberately NOT touched: `actions`/`action_values` already
+    arrive correct, and merging them from breakdown rows would risk
+    double-counting. Derived rates are recomputed by the dashboard from these
+    raw counts, so patching the two raw fields repairs everything downstream.
+    """
+    broken = _fault_rows(rows)
+    if not broken:
+        return rows
+
+    params = {
+        "access_token": _token(),
+        "fields": "spend,impressions",
+        "time_range": json.dumps({"since": since, "until": until}),
+        "level": level,
+        "time_increment": time_increment,
+        "breakdowns": REPAIR_BREAKDOWN,
+        "limit": 500,
+    }
+    url = f"{GRAPH_URL}/{account_id}/insights"
+    totals = {}
+    for _ in range(MAX_PAGES):
+        r = requests.get(url, params=params, timeout=60)
+        body = r.json()
+        if "error" in body:
+            return rows  # repair is best-effort; never fail the whole request
+        for part in body.get("data", []):
+            day = totals.setdefault(part.get("date_start"), [0.0, 0])
+            day[0] += float(part.get("spend") or 0)
+            day[1] += int(part.get("impressions") or 0)
+        url = body.get("paging", {}).get("next")
+        if not url:
+            break
+        params = None
+
+    for row in broken:
+        fixed = totals.get(row.get("date_start"))
+        if not fixed:
+            continue
+        row["spend"] = f"{fixed[0]:.2f}"
+        row["impressions"] = str(fixed[1])
+        # Stale zeros Graph derived from the bad spend. The dashboard rebuilds
+        # these from spend/impressions/clicks, so drop them rather than guess.
+        for derived in ("cpm", "cost_per_inline_link_click", "inline_link_click_ctr"):
+            row.pop(derived, None)
+    return rows
 
 
 def fetch_objects(fieldset, ids):
